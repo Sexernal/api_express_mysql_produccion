@@ -39,10 +39,14 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
+        // Preferimos el role desde la DB (por si cambió). Si no existe, usamos lo del token.
+        const role = user.role || decoded.role || 'user';
+
         // Agregar información del usuario al request
         req.user = {
             userId: decoded.userId,
-            email: decoded.email
+            email: decoded.email,
+            role: user.role || decoded.role || 'user'
         };
 
         next();

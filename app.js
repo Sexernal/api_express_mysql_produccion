@@ -16,6 +16,8 @@ const { validateJSON, sanitizeInput, validateContentType } = require('./middlewa
 // Importar rutas
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
+const propietariosRoutes = require('./routes/propietariosRoutes');
+const mascotasRoutes = require('./routes/mascotasRoutes');
 
 // Crear aplicación Express
 const app = express();
@@ -34,7 +36,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Middleware para CORS
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' 
+    origin: process.env.NODE_ENV === 'production'
         ? ['https://tu-dominio.com'] // Cambiar por tu dominio en producción
         : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
     credentials: true,
@@ -80,7 +82,7 @@ app.get('/health', async (req, res) => {
     try {
         // Verificar conexión a la base de datos
         const dbConnected = await testConnection();
-        
+
         res.status(200).json({
             success: true,
             status: 'healthy',
@@ -103,6 +105,9 @@ app.get('/health', async (req, res) => {
 // Rutas de la API
 app.use(`${API_PREFIX}/users`, userRoutes);
 app.use(`${API_PREFIX}/auth`, authRoutes);
+app.use(`${API_PREFIX}/propietarios`, propietariosRoutes);
+app.use(`${API_PREFIX}/mascotas`, mascotasRoutes);
+
 
 // Ruta para documentación básica
 app.get('/docs', (req, res) => {
@@ -125,7 +130,19 @@ app.get('/docs', (req, res) => {
             'GET /users/:id': 'Obtener usuario por ID',
             'POST /users': 'Crear nuevo usuario',
             'PUT /users/:id': 'Actualizar usuario',
-            'DELETE /users/:id': 'Eliminar usuario'
+            'DELETE /users/:id': 'Eliminar usuario',
+            // Propietarios (nuevo)
+            'GET /propietarios': 'Listar propietarios (requiere token)',
+            'POST /propietarios': 'Crear propietario { nombre, email, telefono, direccion } (requiere token)',
+            'GET /propietarios/:id': 'Obtener propietario por ID (requiere token)',
+            'PUT /propietarios/:id': 'Actualizar propietario (requiere token)',
+            'DELETE /propietarios/:id': 'Eliminar propietario (requiere token)',
+            // Mascotas (nuevo)
+            'GET /mascotas': 'Listar mascotas (requiere token)',
+            'POST /mascotas': 'Crear mascota { nombre, especie, raza, edad, historial_medico, owner_id } (requiere token)',
+            'GET /mascotas/:id': 'Obtener mascota por ID (requiere token)',
+            'PUT /mascotas/:id': 'Actualizar mascota (requiere token)',
+            'DELETE /mascotas/:id': 'Eliminar mascota (requiere token)'
         },
         examples: {
             register: {
@@ -156,7 +173,9 @@ app.use((req, res) => {
             health: '/',
             docs: '/docs',
             auth: `${API_PREFIX}/auth`,
-            users: `${API_PREFIX}/users`
+            users: `${API_PREFIX}/users`,
+            propietarios: `${API_PREFIX}/propietarios`,
+            mascotas: `${API_PREFIX}/mascotas`
         }
     });
 });
@@ -187,8 +206,8 @@ app.use((err, req, res, next) => {
     res.status(err.status || 500).json({
         success: false,
         message: 'Error interno del servidor',
-        error: process.env.NODE_ENV === 'production' 
-            ? 'Algo salió mal en el servidor' 
+        error: process.env.NODE_ENV === 'production'
+            ? 'Algo salió mal en el servidor'
             : err.message,
         timestamp: new Date().toISOString()
     });
@@ -204,7 +223,7 @@ const initializeApp = async () => {
         // Probar conexión a la base de datos
         console.log('🔍 Verificando conexión a la base de datos...');
         const dbConnected = await testConnection();
-        
+
         if (!dbConnected) {
             console.error('❌ No se pudo conectar a la base de datos');
             console.log('💡 Asegúrate de que MySQL esté ejecutándose y las credenciales sean correctas');
