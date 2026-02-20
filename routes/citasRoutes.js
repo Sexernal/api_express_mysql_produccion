@@ -18,6 +18,19 @@ router.get(
   CitasController.list
 );
 
+// Slots endpoint (nuevo)
+router.get(
+  '/slots',
+  authenticateToken,
+  [
+    query('date').notEmpty().withMessage('date is required in YYYY-MM-DD format'),
+    query('tipo').optional(),
+    query('veterinario_id').optional(),
+    handleValidationErrors
+  ],
+  CitasController.getSlots
+);
+
 // Get by id
 router.get('/:id',
   authenticateToken,
@@ -39,7 +52,7 @@ router.post('/',
   CitasController.create
 );
 
-// Update (edición general; soporta cambiar estado también)
+// Update
 router.put('/:id',
   authenticateToken,
   [
@@ -54,8 +67,7 @@ router.put('/:id',
   CitasController.update
 );
 
-// Confirmar cita (cambia estado -> 'confirmada')
-// Aceptamos POST, PUT y PATCH para evitar errores por método equivocado desde frontend
+// Confirm handlers
 const confirmHandlers = [
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
@@ -65,7 +77,7 @@ router.post('/:id/confirm', ...confirmHandlers);
 router.put('/:id/confirm', ...confirmHandlers);
 router.patch('/:id/confirm', ...confirmHandlers);
 
-// Marcar completada (estado -> 'completada')
+// Complete handlers
 const completeHandlers = [
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
@@ -75,7 +87,7 @@ router.post('/:id/complete', ...completeHandlers);
 router.put('/:id/complete', ...completeHandlers);
 router.patch('/:id/complete', ...completeHandlers);
 
-// Cambiar estado de manera genérica (PATCH /:id/status)
+// Status
 const statusHandlers = [
   authenticateToken,
   [
