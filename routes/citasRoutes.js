@@ -5,9 +5,8 @@ const CitasController = require('../controllers/citasController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors } = require('../middleware/validation');
-const requireAdmin = require('../middleware/requireAdmin');
 
-// List (public but auth recommended) - allow filters in query
+// List
 router.get(
   '/',
   authenticateToken,
@@ -53,6 +52,20 @@ router.put('/:id',
     handleValidationErrors
   ],
   CitasController.update
+);
+
+// Confirmar cita (cambia estado -> 'confirmada')
+router.post('/:id/confirm',
+  authenticateToken,
+  [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
+  CitasController.confirm
+);
+
+// Marcar completada (estado -> 'completada')
+router.post('/:id/complete',
+  authenticateToken,
+  [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
+  CitasController.complete
 );
 
 // Delete
