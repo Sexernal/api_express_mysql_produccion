@@ -5,8 +5,9 @@ const CitasController = require('../controllers/citasController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors } = require('../middleware/validation');
+const requireAdmin = require('../middleware/requireAdmin');
 
-// List
+// List (public but auth recommended) - allow filters in query
 router.get(
   '/',
   authenticateToken,
@@ -16,19 +17,6 @@ router.get(
     handleValidationErrors
   ],
   CitasController.list
-);
-
-// Slots endpoint (nuevo)
-router.get(
-  '/slots',
-  authenticateToken,
-  [
-    query('date').notEmpty().withMessage('date is required in YYYY-MM-DD format'),
-    query('tipo').optional(),
-    query('veterinario_id').optional(),
-    handleValidationErrors
-  ],
-  CitasController.getSlots
 );
 
 // Get by id
@@ -66,40 +54,6 @@ router.put('/:id',
   ],
   CitasController.update
 );
-
-// Confirm handlers
-const confirmHandlers = [
-  authenticateToken,
-  [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
-  CitasController.confirm
-];
-router.post('/:id/confirm', ...confirmHandlers);
-router.put('/:id/confirm', ...confirmHandlers);
-router.patch('/:id/confirm', ...confirmHandlers);
-
-// Complete handlers
-const completeHandlers = [
-  authenticateToken,
-  [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
-  CitasController.complete
-];
-router.post('/:id/complete', ...completeHandlers);
-router.put('/:id/complete', ...completeHandlers);
-router.patch('/:id/complete', ...completeHandlers);
-
-// Status
-const statusHandlers = [
-  authenticateToken,
-  [
-    param('id').isInt({ min: 1 }).withMessage('ID inválido'),
-    body('estado').isIn(['pendiente','confirmada','completada','cancelada']).withMessage('Estado inválido'),
-    handleValidationErrors
-  ],
-  CitasController.changeStatus
-];
-router.patch('/:id/status', ...statusHandlers);
-router.put('/:id/status', ...statusHandlers);
-router.post('/:id/status', ...statusHandlers);
 
 // Delete
 router.delete('/:id',
