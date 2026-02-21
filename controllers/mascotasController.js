@@ -1,3 +1,4 @@
+// controllers/mascotasController.js
 const db = require('../db');
 
 const MascotasController = {
@@ -6,18 +7,39 @@ const MascotasController = {
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(100, parseInt(req.query.limit) || 10);
       const q = (req.query.q || '').trim();
-  
-      let where = '';
+
+      // Construimos filtros de forma segura y ordenada
+      const filters = [];
       const params = [];
+
+      // Si es propietario autenticado: forzamos filtro por su owner_id
+      if (req.user && req.user.role === 'propietario') {
+        filters.push('m.owner_id = ?');
+        params.push(Number(req.user.userId));
+      } else {
+        // Si no es propietario (admin u otro), permitimos filtrar por query owner_id si viene
+        if (req.query.owner_id) {
+          const ownerId = parseInt(req.query.owner_id);
+          if (!isNaN(ownerId)) {
+            filters.push('m.owner_id = ?');
+            params.push(ownerId);
+          }
+        }
+      }
+
+      // Filtro de búsqueda por q (nombre, especie, raza, propietario)
       if (q) {
-        where = ' WHERE m.nombre LIKE ? OR m.especie LIKE ? OR m.raza LIKE ? OR p.nombre LIKE ?';
+        filters.push('(m.nombre LIKE ? OR m.especie LIKE ? OR m.raza LIKE ? OR p.nombre LIKE ?)');
         params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
       }
-  
+
+      const where = filters.length ? ' WHERE ' + filters.join(' AND ') : '';
+
+      // Contar total (con los mismos filtros)
       const countSql = `SELECT COUNT(*) AS total FROM mascotas m JOIN propietarios p ON m.owner_id = p.id ${where}`;
       const [countRows] = await db.query(countSql, params);
       const total = countRows[0]?.total || 0;
-  
+
       const offset = (page - 1) * limit;
       const sql = `
         SELECT m.*, p.nombre AS propietario_nombre, p.email AS propietario_email
@@ -27,8 +49,9 @@ const MascotasController = {
         ORDER BY m.created_at DESC
         LIMIT ? OFFSET ?
       `;
+      // Nota: agregamos limit y offset al final de los parámetros
       const [rows] = await db.query(sql, [...params, limit, offset]);
-  
+
       res.set('X-Total-Count', String(total));
       res.json({ success: true, data: rows, meta: { total, page, limit } });
     } catch (error) {
@@ -42,7 +65,21 @@ const MascotasController = {
       const id = req.params.id;
       const [rows] = await db.query('SELECT * FROM mascotas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Mascota no encontrada' });
-      res.json({ success: true, data: rows[0] });
+
+      const mascota = rows[0];
+
+      // Si el solicitante es propietario, verificar que la mascota le pertenezca
+      if (req.user && req.user.role === 'propietario') {
+        if (Number(mascota.owner_id) !== Number(req.user.userId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No autorizado para ver esta mascota',
+            error: 'La mascota no pertenece al propietario autenticado'
+          });
+        }
+      }
+
+      res.json({ success: true, data: mascota });
     } catch (error) {
       console.error('Error get mascota:', error);
       res.status(500).json({ success: false, message: 'Error al obtener mascota', error: error.message });

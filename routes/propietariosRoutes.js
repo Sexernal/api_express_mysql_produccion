@@ -10,6 +10,9 @@ const requireAdmin = require('../middleware/requireAdmin');
 // Listar propietarios (protegido)
 router.get('/', authenticateToken, PropietariosController.list);
 
+// Obtener propia info (propietario autenticado)
+router.get('/me', authenticateToken, PropietariosController.getMe);
+
 // Obtener por id
 router.get('/:id', authenticateToken,
   [param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors],
@@ -29,7 +32,20 @@ router.post('/', authenticateToken, requireAdmin,
   PropietariosController.create
 );
 
-// Actualizar propietario (solo admin)
+// Actualizar propio perfil (propietario autenticado)
+router.put('/me', authenticateToken,
+  [
+    body('nombre').optional().isLength({ min: 2 }).withMessage('Nombre muy corto'),
+    body('email').optional().isEmail().withMessage('Email inválido'),
+    body('telefono').optional().trim().matches(/^[\+]?[0-9\-\(\)\s]{7,20}$/).withMessage('Teléfono inválido'),
+    body('direccion').optional().isLength({ min: 3 }).withMessage('Dirección inválida'),
+    body('password').optional().isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres'),
+    handleValidationErrors
+  ],
+  PropietariosController.updateMe
+);
+
+// Actualizar propietario por id (solo admin)
 router.put('/:id', authenticateToken, requireAdmin,
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),

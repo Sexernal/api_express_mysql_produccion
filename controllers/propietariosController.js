@@ -40,6 +40,22 @@ const PropietariosController = {
     }
   },
 
+  // GET /propietarios/me
+  async getMe(req, res) {
+    try {
+      const id = req.user && req.user.userId;
+      if (!id) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+      const [rows] = await db.query('SELECT id, nombre, email, telefono, direccion, created_at, updated_at FROM propietarios WHERE id = ?', [id]);
+      if (!rows.length) return res.status(404).json({ success: false, message: 'Propietario no encontrado' });
+
+      res.json({ success: true, data: rows[0] });
+    } catch (error) {
+      console.error('Error getMe propietario:', error);
+      res.status(500).json({ success: false, message: 'Error al obtener propietario', error: error.message });
+    }
+  },
+
   async getById(req, res) {
     try {
       const id = req.params.id;
@@ -83,6 +99,52 @@ const PropietariosController = {
     } catch (error) {
       console.error('Error create propietario:', error);
       res.status(500).json({ success: false, message: 'Error al crear propietario', error: error.message });
+    }
+  },
+
+  // PUT /propietarios/me  <-- nuevo: permite que el propietario autenticado actualice su propia info
+  async updateMe(req, res) {
+    try {
+      const id = req.user && req.user.userId;
+      if (!id) return res.status(401).json({ success: false, message: 'No autenticado' });
+
+      const { nombre, email, telefono, direccion, password } = req.body;
+
+      // si actualiza email validar duplicado
+      if (email) {
+        const [rowsEmail] = await db.query('SELECT id FROM propietarios WHERE email = ? AND id != ?', [email, id]);
+        if (rowsEmail.length) return res.status(409).json({ success: false, message: 'Email ya en uso por otro propietario' });
+      }
+
+      let hashed;
+      if (typeof password !== 'undefined' && password !== null && password !== '') {
+        const saltRounds = 10;
+        hashed = await bcrypt.hash(password, saltRounds);
+      }
+
+      // Update dinámico con COALESCE (no tocará campos no enviados)
+      await db.query(
+        `UPDATE propietarios SET
+           nombre = COALESCE(?, nombre),
+           email = COALESCE(?, email),
+           telefono = COALESCE(?, telefono),
+           direccion = COALESCE(?, direccion),
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [nombre, email, telefono, direccion, id]
+      );
+
+      if (typeof hashed !== 'undefined') {
+        await db.query('UPDATE propietarios SET password = ? WHERE id = ?', [hashed, id]);
+      }
+
+      const [rows] = await db.query('SELECT id, nombre, email, telefono, direccion, created_at, updated_at FROM propietarios WHERE id = ?', [id]);
+      if (!rows.length) return res.status(404).json({ success: false, message: 'Propietario no encontrado tras actualización' });
+
+      res.json({ success: true, data: rows[0] });
+    } catch (error) {
+      console.error('Error updateMe propietario:', error);
+      res.status(500).json({ success: false, message: 'Error al actualizar propietario', error: error.message });
     }
   },
 
@@ -177,6 +239,7 @@ const PropietariosController = {
         created_at: user.created_at || null
       };
 
+      // Mantengo el formato de respuesta que ya tenías: data: { user, token, expiresIn }
       res.status(200).json({ success: true, message: 'Login exitoso', data: { user: safeUser, token, expiresIn: process.env.JWT_EXPIRES_IN || '24h' } });
     } catch (err) {
       console.error('Error login propietario:', err);
