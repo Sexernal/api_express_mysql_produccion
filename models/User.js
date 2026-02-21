@@ -179,8 +179,12 @@ class User {
       if (limitInt > 100) limitInt = 100;
       const offset = (pageInt - 1) * limitInt;
 
-      const [users] = await pool.execute(
-        `SELECT id, nombre, email, telefono, role, fecha_creacion AS created_at, fecha_actualizacion AS updated_at FROM usuarios ORDER BY fecha_creacion DESC LIMIT ? OFFSET ?`,
+      // CAMBIO IMPORTANTE: usar pool.query en lugar de pool.execute
+      const [users] = await pool.query(
+        `SELECT id, nombre, email, telefono, role, fecha_creacion AS created_at, fecha_actualizacion AS updated_at 
+         FROM usuarios 
+         ORDER BY fecha_creacion DESC 
+         LIMIT ? OFFSET ?`,
         [limitInt, offset]
       );
 
