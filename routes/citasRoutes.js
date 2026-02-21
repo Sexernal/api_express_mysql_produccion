@@ -18,6 +18,19 @@ router.get(
   CitasController.list
 );
 
+// Slots endpoint (nuevo)
+router.get(
+  '/slots',
+  authenticateToken,
+  [
+    query('date').notEmpty().withMessage('date is required in YYYY-MM-DD format'),
+    query('tipo').optional(),
+    query('veterinario_id').optional(),
+    handleValidationErrors
+  ],
+  CitasController.getSlots
+);
+
 // Get by id
 router.get('/:id',
   authenticateToken,
@@ -54,19 +67,39 @@ router.put('/:id',
   CitasController.update
 );
 
-// Confirmar cita (cambia estado -> 'confirmada')
-router.post('/:id/confirm',
+// Confirm handlers
+const confirmHandlers = [
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
   CitasController.confirm
-);
+];
+router.post('/:id/confirm', ...confirmHandlers);
+router.put('/:id/confirm', ...confirmHandlers);
+router.patch('/:id/confirm', ...confirmHandlers);
 
-// Marcar completada (estado -> 'completada')
-router.post('/:id/complete',
+// Complete handlers
+const completeHandlers = [
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
   CitasController.complete
-);
+];
+router.post('/:id/complete', ...completeHandlers);
+router.put('/:id/complete', ...completeHandlers);
+router.patch('/:id/complete', ...completeHandlers);
+
+// Status
+const statusHandlers = [
+  authenticateToken,
+  [
+    param('id').isInt({ min: 1 }).withMessage('ID inválido'),
+    body('estado').isIn(['pendiente','confirmada','completada','cancelada']).withMessage('Estado inválido'),
+    handleValidationErrors
+  ],
+  CitasController.changeStatus
+];
+router.patch('/:id/status', ...statusHandlers);
+router.put('/:id/status', ...statusHandlers);
+router.post('/:id/status', ...statusHandlers);
 
 // Delete
 router.delete('/:id',

@@ -10,17 +10,18 @@ require('dotenv').config();
 
 // Config y middlewares propios
 const { testConnection } = require('./config/database');
-const { sanitizeInput, validateJSON, validateContentType } = require('./middleware/validation');
+const { sanitizeInput, validateJSON, validateContentType } = require('./middleware/validation'); // usamos validateContentType actualizado
 
-// Rutas principales
+// Rutas principales (solo require, no deben requerir app)
+// Asegúrate que en tus archivos de rutas no haya `require('../app')` (evita dependencia circular)
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const propietariosRoutes = require('./routes/propietariosRoutes');
 const mascotasRoutes = require('./routes/mascotasRoutes');
 const medicalRoutes = require('./routes/medicalRoutes'); // contiene rutas /medical-records...
-const citasRoutes = require('./routes/citasRoutes');
+const citasRoutes = require('./routes/citasRoutes'); // router de citas
 
-// Crear app y constantes
+// Crear app y constantes (DEBEN ir antes de usar app.use)
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_PREFIX = process.env.API_PREFIX || '/api/v1';
@@ -71,7 +72,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 /* ---------------- Rutas ---------------- */
 
-// Health checks
+// health
 app.get('/', (req, res) => {
   res.json({ success: true, message: 'API funcionando', version: '1.0.0', timestamp: new Date().toISOString() });
 });
@@ -85,13 +86,18 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// API routes (todas con segmentos fijos, ninguna montada en la raíz sola)
-app.use(`${API_PREFIX}/auth`, authRoutes);
+// API routes
 app.use(`${API_PREFIX}/users`, userRoutes);
+app.use(`${API_PREFIX}/auth`, authRoutes);
 app.use(`${API_PREFIX}/propietarios`, propietariosRoutes);
 app.use(`${API_PREFIX}/mascotas`, mascotasRoutes);
+
+// Montamos rutas médicas en la raíz del prefijo API para que coincida con frontend:
+// => frontend usa /medical-records (sin /medical). Quedará: /api/v1/medical-records
+app.use(`${API_PREFIX}`, medicalRoutes);
+
+// Rutas de citas
 app.use(`${API_PREFIX}/citas`, citasRoutes);
-app.use(`${API_PREFIX}/medical-records`, medicalRoutes);  // <-- RUTA CORREGIDA: ahora es específica
 
 // docs (breve)
 app.get('/docs', (req, res) => {
@@ -99,12 +105,12 @@ app.get('/docs', (req, res) => {
     success: true,
     baseUrl: `${req.protocol}://${req.get('host')}${API_PREFIX}`,
     endpointsSummary: {
-      auth: `${API_PREFIX}/auth`,
       users: `${API_PREFIX}/users`,
+      auth: `${API_PREFIX}/auth`,
       propietarios: `${API_PREFIX}/propietarios`,
       mascotas: `${API_PREFIX}/mascotas`,
-      citas: `${API_PREFIX}/citas`,
-      medical: `${API_PREFIX}/medical-records`
+      medical: `${API_PREFIX}/medical-records`,
+      citas: `${API_PREFIX}/citas`
     }
   });
 });

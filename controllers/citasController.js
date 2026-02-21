@@ -3,10 +3,8 @@ const db = require('../db');
 const { validationResult } = require('express-validator');
 
 /**
- * CitasController - incluye:
- *  - control de solapamientos por veterinario
- *  - buffer opcional (buffer_min) para tiempo de preparación después de la cita
- *  - endpoints para confirmar y marcar completada
+ * CitasController - incluye control de solapamientos por veterinario,
+ * buffer opcional, endpoint /citas/slots y correcciones de columnas DB.
  */
 
 function parseDate(val) {
@@ -15,25 +13,18 @@ function parseDate(val) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// Comprueba solapamiento entre intervalos [aStart,aEnd) y [bStart,bEnd)
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return (aStart < bEnd && bStart < aEnd);
+}
+
 /**
  * _hasOverlap:
  *   Verifica si existe solapamiento con otras citas del mismo veterinario.
- *   Se considera buffer (minutos) adicional al final de cada cita.
- *
- *   Lógica: nueva_start < (existing_end + buffer)  AND existing_start < (new_end + buffer)
- *
- *   Parámetros:
- *     veterinario_id - id veterinario
- *     fecha_inicio - string SQL "YYYY-MM-DD HH:MM:SS" (nueva cita start)
- *     duracion_min - duración de la nueva cita en minutos
- *     excludeId - opcional id a excluir (para update)
- *     bufferMin - minutos de buffer (opcional, default 10)
+ *   Considera buffer adicional al final de cada cita.
  */
 async function _hasOverlap(veterinario_id, fecha_inicio, duracion_min, excludeId = null, bufferMin = 10) {
   if (!veterinario_id) return false;
-  // Usamos DATE_ADD anidados para sumar duracion + buffer
-  // existing_end_plus_buffer = DATE_ADD(DATE_ADD(c.fecha_inicio, INTERVAL c.duracion_min MINUTE), INTERVAL ? MINUTE)
-  // new_end_plus_buffer = DATE_ADD(DATE_ADD(?, INTERVAL ? MINUTE), INTERVAL ? MINUTE) -> start + duracion + buffer
   let sql = `
     SELECT 1 FROM citas c
     WHERE c.veterinario_id = ?
@@ -49,6 +40,116 @@ async function _hasOverlap(veterinario_id, fecha_inicio, duracion_min, excludeId
   const [rows] = await db.query(sql, params);
   return rows.length > 0;
 }
+
+/* ------------------ Helpers slots (backend) ------------------ */
+
+function getDurationForTipo(t) {
+  const map = {
+    "consulta general": 30,
+    "vacunacion": 20,
+    "urgencia": 60,
+    "cirugia": 120,
+    "peluqueria": 45,
+    "control": 20,
+    "desparacitacion": 15
+  };
+  return map[(t || "").toLowerCase()] || 30;
+}
+
+function getWindowsForTipo(t) {
+  const low = (t || "").toLowerCase();
+  switch (low) {
+    case "vacunacion": return [{ from: "08:00", to: "12:30" }, { from: "14:00", to: "17:00" }];
+    case "cirugia": return [{ from: "08:00", to: "12:00" }];
+    case "peluqueria": return [{ from: "09:00", to: "16:00" }];
+    case "urgencia": return [{ from: "07:00", to: "17:00" }];
+    case "control": return [{ from: "07:00", to: "17:00" }];
+    case "desparacitacion": return [{ from: "07:00", to: "17:00" }];
+    default: return [{ from: "07:00", to: "17:00" }];
+  }
+}
+
+function parseHHMM(hhmm) {
+  const [hh, mm] = hhmm.split(":").map(Number);
+  return hh * 60 + mm;
+}
+function minutesToHHMM(m) {
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+
+/**
+ * generateSlotsNode(dateStr, tipoStr, vetList, existingCitas)
+ * - evita generar slots que se solapen para el mismo veterinario
+ */
+function generateSlotsNode(dateStr, tipoStr, vetList, existingCitas) {
+  if (!dateStr || !tipoStr) return { slotsByVet: {}, durationMin: 0 };
+  const durationMin = getDurationForTipo(tipoStr);
+  const windows = getWindowsForTipo(tipoStr);
+  const CLINIC_OPEN = "07:00";
+  const CLINIC_CLOSE = "17:00";
+
+  // Map de citas por vet
+  const citasByVet = {};
+  for (const c of existingCitas) {
+    const vid = c.veterinario_id ? String(c.veterinario_id) : "null";
+    if (!citasByVet[vid]) citasByVet[vid] = [];
+    const start = new Date(c.fecha_inicio || c.fecha || "");
+    const end = new Date(start.getTime() + Number(c.duracion_min || c.duracion || 0) * 60000);
+    citasByVet[vid].push({ start, end });
+  }
+
+  const slotsByVet = {};
+  for (const vet of vetList) {
+    const vid = String(vet.id);
+    slotsByVet[vid] = [];
+    for (const w of windows) {
+      const windowFromMin = Math.max(parseHHMM(CLINIC_OPEN), parseHHMM(w.from));
+      const windowToMin = Math.min(parseHHMM(CLINIC_CLOSE), parseHHMM(w.to));
+      const lastStartMin = windowToMin - durationMin;
+      // Si lastStartMin < windowFromMin no hay slots
+      if (lastStartMin < windowFromMin) continue;
+
+      // Buscamos slots, evitando solapamientos entre los slots que ofrecemos:
+      // si un slot fue aceptado, avanzamos `t` en durationMin para no ofrecer uno que se solape.
+      let t = windowFromMin;
+      const step = 15; // paso para "buscar", pero si añadimos un slot avanzamos durationMin
+      while (t <= lastStartMin) {
+        const timeStr = minutesToHHMM(t);
+        const startIsoLocal = `${dateStr}T${timeStr}`;
+        const start = new Date(`${dateStr}T${timeStr}:00`);
+        if (isNaN(start.getTime())) { t += step; continue; }
+        const end = new Date(start.getTime() + durationMin * 60000);
+
+        const vetCitas = citasByVet[vid] || [];
+        let conflict = false;
+        for (const c of vetCitas) {
+          if (overlaps(start.getTime(), end.getTime(), c.start.getTime(), c.end.getTime())) {
+            conflict = true;
+            break;
+          }
+        }
+
+        if (!conflict) {
+          slotsByVet[vid].push({ timeStr, startIsoLocal });
+          // Avanzamos en durationMin para no proponer slots que se solapen para el mismo vet
+          t += durationMin;
+        } else {
+          // Slot en conflicto (con una cita existente), avanzamos paso pequeño para seguir buscando
+          t += step;
+        }
+      }
+    }
+
+    // ordenar por hora
+    slotsByVet[vid].sort((a,b) => a.startIsoLocal.localeCompare(b.startIsoLocal));
+  }
+
+  return { slotsByVet, durationMin };
+}
+
+/* ------------------ Controller principal ------------------ */
 
 const CitasController = {
   // GET /citas
@@ -129,21 +230,21 @@ const CitasController = {
         return res.status(400).json({ success: false, message: 'mascota_id, propietario_id y fecha_inicio son requeridos' });
       }
 
-      // validar mascota y pertenencia
+      // validar mascota y pertenencia (tu tabla mascotas usa owner_id)
       const [mrows] = await db.query('SELECT id, owner_id FROM mascotas WHERE id = ?', [mascota_id]);
       if (!mrows.length) return res.status(400).json({ success: false, message: 'Mascota no existe' });
       const m = mrows[0];
-      const mascotaOwnerId = m.owner_id || m.propietario_id;
+      const mascotaOwnerId = m.owner_id;
       if (Number(mascotaOwnerId) !== Number(propietario_id)) {
         return res.status(400).json({ success: false, message: 'La mascota no pertenece al propietario indicado' });
       }
 
-      // permisos: si quien crea es propietario, asegurar coincide
+      // permisos
       if (req.user.role === 'propietario' && Number(req.user.userId) !== Number(propietario_id)) {
         return res.status(403).json({ success: false, message: 'No autorizado para crear cita para otro propietario' });
       }
 
-      // validar veterinario si se pasó (por ahora: veterinario = usuario con role 'admin' en tu esquema)
+      // validar veterinario si se pasó
       let vetIdToUse = null;
       if (veterinario_id) {
         const [urows] = await db.query('SELECT id, role FROM usuarios WHERE id = ?', [veterinario_id]);
@@ -160,7 +261,6 @@ const CitasController = {
       const durMin = typeof duracion_min !== 'undefined' && duracion_min !== null ? Number(duracion_min) : 30;
       if (isNaN(durMin) || durMin <= 0) return res.status(400).json({ success: false, message: 'duracion_min inválida' });
 
-      // buffer opcional: desde body buffer_min (en minutos) o default 10
       const bufferMin = Number(req.body.buffer_min ?? req.body.bufferMin ?? 10);
 
       // comprobar solapamientos si hay veterinario asignado
@@ -201,7 +301,6 @@ const CitasController = {
       if (!existingRows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const existing = existingRows[0];
 
-      // permisos
       const userRole = req.user.role;
       const userId = req.user.userId;
       if (userRole === 'propietario' && Number(userId) !== Number(existing.propietario_id)) {
@@ -210,7 +309,6 @@ const CitasController = {
 
       const { mascota_id, propietario_id, veterinario_id, tipo_consulta, motivo, fecha_inicio, duracion_min, estado } = req.body;
 
-      // validar mascota/propietario coherencia si cambian
       if (mascota_id || propietario_id) {
         const mId = mascota_id || existing.mascota_id;
         const pId = propietario_id || existing.propietario_id;
@@ -220,7 +318,6 @@ const CitasController = {
         if (Number(ownerId) !== Number(pId)) return res.status(400).json({ success: false, message: 'La mascota no pertenece al propietario indicado' });
       }
 
-      // validar veterinario (si viene)
       let vetToUse = existing.veterinario_id;
       if (typeof veterinario_id !== 'undefined') {
         if (veterinario_id === null || veterinario_id === '') {
@@ -241,10 +338,8 @@ const CitasController = {
       const durMin = (typeof duracion_min !== 'undefined' && duracion_min !== null) ? Number(duracion_min) : existing.duracion_min;
       if (isNaN(durMin) || durMin <= 0) return res.status(400).json({ success: false, message: 'duracion_min inválida' });
 
-      // buffer opcional
       const bufferMin = Number(req.body.buffer_min ?? req.body.bufferMin ?? 10);
 
-      // comprobar solapamientos si vetToUse
       if (vetToUse) {
         const hasOverlap = await _hasOverlap(vetToUse, fecha.toISOString().slice(0,19).replace('T',' '), durMin, id, bufferMin);
         if (hasOverlap) {
@@ -252,7 +347,6 @@ const CitasController = {
         }
       }
 
-      // actualizar
       await db.query(
         `UPDATE citas SET
            mascota_id = COALESCE(?, mascota_id),
@@ -293,6 +387,32 @@ const CitasController = {
     }
   },
 
+  // GET /citas/slots
+  async getSlots(req, res) {
+    try {
+      const date = req.query.date;
+      if (!date) return res.status(400).json({ success: false, message: 'date query parameter is required (YYYY-MM-DD)' });
+
+      const tipo = req.query.tipo || 'consulta general';
+      const vetId = req.query.veterinario_id ? String(req.query.veterinario_id) : null;
+
+      // traer veterinarios (usuarios con role admin)
+      const [vRows] = await db.query("SELECT id, nombre, email FROM usuarios WHERE role = 'admin'");
+      const vets = vetId ? vRows.filter(v => String(v.id) === String(vetId)) : vRows;
+
+      // traer citas del día (excluyendo canceladas)
+      const [citasRows] = await db.query("SELECT * FROM citas WHERE DATE(fecha_inicio) = ? AND estado != 'cancelada'", [date]);
+
+      // generar slots
+      const { slotsByVet, durationMin } = generateSlotsNode(date, tipo, vets, citasRows);
+
+      return res.json({ success: true, data: { slotsByVet, durationMin } });
+    } catch (err) {
+      console.error("Error getSlots:", err);
+      return res.status(500).json({ success: false, message: 'Error generando slots', error: err.message });
+    }
+  },
+
   // POST /citas/:id/confirm
   async confirm(req, res) {
     try {
@@ -301,10 +421,8 @@ const CitasController = {
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
 
-      // permisos: admin o propietario dueño
       if (req.user.role !== 'admin') {
         if (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)) {
-          // ok
         } else {
           return res.status(403).json({ success: false, message: 'No autorizado para confirmar esta cita' });
         }
@@ -312,7 +430,6 @@ const CitasController = {
 
       await db.query('UPDATE citas SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['confirmada', id]);
 
-      // devolver cita actualizada
       const [r2] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
@@ -336,10 +453,8 @@ const CitasController = {
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
 
-      // permisos: admin o propietario dueño
       if (req.user.role !== 'admin') {
         if (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)) {
-          // ok
         } else {
           return res.status(403).json({ success: false, message: 'No autorizado para marcar completada esta cita' });
         }
@@ -362,6 +477,44 @@ const CitasController = {
     }
   },
 
+  // PATCH /citas/:id/status
+  async changeStatus(req, res) {
+    try {
+      const id = req.params.id;
+      const { estado } = req.body;
+
+      const allowed = ['pendiente','confirmada','completada','cancelada'];
+      if (!estado || !allowed.includes(estado)) {
+        return res.status(400).json({ success: false, message: 'Estado inválido. Valores permitidos: ' + allowed.join(', ') });
+      }
+
+      const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
+      if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
+      const cita = rows[0];
+
+      if (req.user.role !== 'admin') {
+        if (!(req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id))) {
+          return res.status(403).json({ success: false, message: 'No autorizado para cambiar estado de esta cita' });
+        }
+      }
+
+      await db.query('UPDATE citas SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [estado, id]);
+
+      const [r2] = await db.query(`
+        SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
+        FROM citas c
+        LEFT JOIN mascotas m ON c.mascota_id = m.id
+        LEFT JOIN propietarios p ON c.propietario_id = p.id
+        LEFT JOIN usuarios u ON c.veterinario_id = u.id
+        WHERE c.id = ?`, [id]);
+
+      res.json({ success: true, data: r2[0] });
+    } catch (err) {
+      console.error('Error changeStatus cita:', err);
+      res.status(500).json({ success: false, message: 'Error al cambiar estado', error: err.message });
+    }
+  },
+
   // DELETE /citas/:id
   async remove(req, res) {
     try {
@@ -370,10 +523,8 @@ const CitasController = {
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
 
-      // permisos: admin o propietario dueño pueden borrar
       if (req.user.role !== 'admin') {
         if (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)) {
-          // ok
         } else {
           return res.status(403).json({ success: false, message: 'No autorizado para eliminar esta cita' });
         }
