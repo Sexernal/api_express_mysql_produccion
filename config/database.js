@@ -18,7 +18,11 @@ const dbConfig = {
     database: process.env.DB_NAME || 'usuarios_db',
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    // HABILITAR SSL EN PRODUCCIÓN (Vercel)
+    ssl: process.env.NODE_ENV === 'production' ? {
+        rejectUnauthorized: false // Permitir conexiones SSL sin verificar certificado (solución rápida)
+    } : false
 };
 
 /**

@@ -192,8 +192,15 @@ const CitasController = {
       res.set('X-Total-Count', String(total));
       res.json({ success: true, data: rows, meta: { total, page, limit } });
     } catch (err) {
-      console.error('Error list citas:', err);
-      res.status(500).json({ success: false, message: 'Error al listar citas', error: err.message });
+      console.error('❌ Error detallado en list citas:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error al listar citas', 
+        error: err.message,          // ← Ahora muestra el error real de MySQL
+        sqlMessage: err.sqlMessage,  // Si el error tiene propiedad sqlMessage
+        sql: err.sql,                // Si el error tiene la consulta SQL
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      });
     }
   },
 
@@ -211,8 +218,8 @@ const CitasController = {
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       res.json({ success: true, data: rows[0] });
     } catch (err) {
-      console.error('Error get cita:', err);
-      res.status(500).json({ success: false, message: 'Error al obtener cita', error: err.message });
+      console.error('❌ Error get cita:', err);
+      res.status(500).json({ success: false, message: 'Error al obtener cita', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -288,8 +295,8 @@ const CitasController = {
 
       res.status(201).json({ success: true, data: rows[0] });
     } catch (err) {
-      console.error('Error create cita:', err);
-      res.status(500).json({ success: false, message: 'Error al crear cita', error: err.message });
+      console.error('❌ Error create cita:', err);
+      res.status(500).json({ success: false, message: 'Error al crear cita', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -382,8 +389,8 @@ const CitasController = {
 
       res.json({ success: true, data: rows[0] });
     } catch (err) {
-      console.error('Error update cita:', err);
-      res.status(500).json({ success: false, message: 'Error al actualizar cita', error: err.message });
+      console.error('❌ Error update cita:', err);
+      res.status(500).json({ success: false, message: 'Error al actualizar cita', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -408,8 +415,8 @@ const CitasController = {
 
       return res.json({ success: true, data: { slotsByVet, durationMin } });
     } catch (err) {
-      console.error("Error getSlots:", err);
-      return res.status(500).json({ success: false, message: 'Error generando slots', error: err.message });
+      console.error("❌ Error getSlots:", err);
+      return res.status(500).json({ success: false, message: 'Error generando slots', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -440,8 +447,8 @@ const CitasController = {
 
       res.json({ success: true, data: r2[0] });
     } catch (err) {
-      console.error('Error confirm cita:', err);
-      res.status(500).json({ success: false, message: 'Error al confirmar cita', error: err.message });
+      console.error('❌ Error confirm cita:', err);
+      res.status(500).json({ success: false, message: 'Error al confirmar cita', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -472,8 +479,8 @@ const CitasController = {
 
       res.json({ success: true, data: r2[0] });
     } catch (err) {
-      console.error('Error complete cita:', err);
-      res.status(500).json({ success: false, message: 'Error al marcar completada', error: err.message });
+      console.error('❌ Error complete cita:', err);
+      res.status(500).json({ success: false, message: 'Error al marcar completada', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -510,8 +517,8 @@ const CitasController = {
 
       res.json({ success: true, data: r2[0] });
     } catch (err) {
-      console.error('Error changeStatus cita:', err);
-      res.status(500).json({ success: false, message: 'Error al cambiar estado', error: err.message });
+      console.error('❌ Error changeStatus cita:', err);
+      res.status(500).json({ success: false, message: 'Error al cambiar estado', error: err.message, sqlMessage: err.sqlMessage });
     }
   },
 
@@ -533,8 +540,8 @@ const CitasController = {
       await db.query('DELETE FROM citas WHERE id = ?', [id]);
       res.json({ success: true, message: 'Cita eliminada' });
     } catch (err) {
-      console.error('Error delete cita:', err);
-      res.status(500).json({ success: false, message: 'Error al eliminar cita', error: err.message });
+      console.error('❌ Error delete cita:', err);
+      res.status(500).json({ success: false, message: 'Error al eliminar cita', error: err.message, sqlMessage: err.sqlMessage });
     }
   }
 };
