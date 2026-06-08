@@ -1,6 +1,6 @@
 // routes/citasRoutes.js
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const CitasController = require('../controllers/citasController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, param, query } = require('express-validator');
@@ -18,7 +18,7 @@ router.get(
   CitasController.list
 );
 
-// Slots endpoint (nuevo)
+// Slots endpoint — debe ir ANTES de /:id para no confundirse
 router.get(
   '/slots',
   authenticateToken,
@@ -32,19 +32,29 @@ router.get(
 );
 
 // Get by id
-router.get('/:id',
+router.get(
+  '/:id',
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
   CitasController.getById
 );
 
+// Log de auditoría de una cita
+router.get(
+  '/:id/log',
+  authenticateToken,
+  [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
+  CitasController.getLog
+);
+
 // Create
-router.post('/',
+router.post(
+  '/',
   authenticateToken,
   [
     body('mascota_id').isInt({ min: 1 }).withMessage('mascota_id inválido'),
     body('propietario_id').isInt({ min: 1 }).withMessage('propietario_id inválido'),
-    body('veterinario_id').optional({ nullable:true }).custom(v => v === null || v === '' || Number.isInteger(Number(v))).withMessage('veterinario_id inválido'),
+    body('veterinario_id').optional({ nullable: true }).custom(v => v === null || v === '' || Number.isInteger(Number(v))).withMessage('veterinario_id inválido'),
     body('fecha_inicio').notEmpty().withMessage('fecha_inicio es requerida'),
     body('duracion_min').optional().isInt({ min: 1 }).withMessage('duracion_min inválida'),
     handleValidationErrors
@@ -53,13 +63,14 @@ router.post('/',
 );
 
 // Update
-router.put('/:id',
+router.put(
+  '/:id',
   authenticateToken,
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),
     body('mascota_id').optional().isInt({ min: 1 }),
     body('propietario_id').optional().isInt({ min: 1 }),
-    body('veterinario_id').optional({ nullable:true }).custom(v => v === null || v === '' || Number.isInteger(Number(v))),
+    body('veterinario_id').optional({ nullable: true }).custom(v => v === null || v === '' || Number.isInteger(Number(v))),
     body('fecha_inicio').optional().notEmpty(),
     body('duracion_min').optional().isInt({ min: 1 }),
     handleValidationErrors
@@ -102,7 +113,8 @@ router.put('/:id/status', ...statusHandlers);
 router.post('/:id/status', ...statusHandlers);
 
 // Delete
-router.delete('/:id',
+router.delete(
+  '/:id',
   authenticateToken,
   [ param('id').isInt({ min: 1 }).withMessage('ID inválido'), handleValidationErrors ],
   CitasController.remove

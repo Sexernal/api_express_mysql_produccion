@@ -1,23 +1,29 @@
-/**
- * routes/authRoutes.js
- */
+// routes/authRoutes.js
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const AuthController = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
-const { validateRegister, validateLogin, validateProfileUpdate } = require('../middleware/validation');
+const {
+  validateRegister,
+  validateLoginCedula,
+  validateRegisterStaff,
+  validateProfileUpdate,
+} = require('../middleware/validation');
 
-// Registrar usuario normal — protegido: solo admins pueden crear usuarios
-router.post('/register', authenticateToken, requireAdmin, validateRegister, AuthController.register);
+// ── Rutas públicas (sin JWT) ──────────────────────────────────────────────────
+router.post('/verify-master',  AuthController.verifyMasterPassword);
+router.post('/register-staff', validateRegisterStaff, AuthController.registerStaff);
+router.post('/login',          validateLoginCedula, AuthController.login);
 
-// Registrar admin — protegido: solo admins
-router.post('/register-admin', authenticateToken, requireAdmin, validateRegister, AuthController.registerAdmin);
-
-router.post('/login', validateLogin, AuthController.login);
-router.get('/profile', authenticateToken, AuthController.getProfile);
-router.put('/profile', authenticateToken, validateProfileUpdate, AuthController.updateProfile);
+// ── Rutas protegidas ──────────────────────────────────────────────────────────
+router.get('/profile',  authenticateToken, AuthController.getProfile);
+router.put('/profile',  authenticateToken, validateProfileUpdate, AuthController.updateProfile);
 router.post('/refresh', authenticateToken, AuthController.refreshToken);
-router.post('/logout', authenticateToken, AuthController.logout);
+router.post('/logout',  authenticateToken, AuthController.logout);
+
+// ── Legacy (solo admins logueados) ────────────────────────────────────────────
+router.post('/register',       authenticateToken, requireAdmin, validateRegister, AuthController.register);
+router.post('/register-admin', authenticateToken, requireAdmin, validateRegister, AuthController.registerAdmin);
 
 module.exports = router;
