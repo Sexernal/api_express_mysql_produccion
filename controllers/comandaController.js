@@ -81,7 +81,7 @@ const ComandaController = {
       const base = `
         FROM fichas_medicas f
         JOIN mascotas m ON f.mascota_id = m.id
-        LEFT JOIN propietarios p ON p.id = COALESCE(m.owner_id, m.propietario_id)
+        LEFT JOIN propietarios p ON p.id = m.owner_id
         LEFT JOIN fichas_cobro fc ON f.id = fc.ficha_id
         LEFT JOIN usuarios u ON f.uploaded_by = u.id
         JOIN (

@@ -80,13 +80,11 @@ const PropietariosController = {
         return res.status(400).json({ success: false, message: 'nombre y email requeridos' });
       }
 
-      // Verificar unicidad de email
       const [existsEmail] = await db.query('SELECT id FROM propietarios WHERE email = ?', [email]);
       if (existsEmail.length) {
         return res.status(409).json({ success: false, message: 'Email ya registrado' });
       }
 
-      // Verificar unicidad de cédula (si se proporcionó)
       if (cedula) {
         if (!/^\d{9}$/.test(cedula)) {
           return res.status(400).json({ success: false, message: 'Cédula debe tener exactamente 9 dígitos numéricos' });
@@ -168,7 +166,6 @@ const PropietariosController = {
     try {
       const id = req.params.id;
       const { nombre, email, telefono, direccion, password } = req.body;
-      // Nota: cedula NO se incluye aquí — es inmutable una vez asignada.
 
       const [target] = await db.query('SELECT * FROM propietarios WHERE id = ?', [id]);
       if (!target.length) return res.status(404).json({ success: false, message: 'Propietario no encontrado' });
@@ -220,21 +217,11 @@ const PropietariosController = {
     }
   },
 
-  // Login para propietarios — soporta cédula (app móvil) o email (legado)
   async login(req, res) {
     try {
-      const { cedula, email, password } = req.body;
+      const { cedula, password } = req.body;
 
-      if (!password || (!cedula && !email)) {
-        return res.status(400).json({ success: false, message: 'Credenciales requeridas (cédula o email, más contraseña)' });
-      }
-
-      let rows;
-      if (cedula) {
-        [rows] = await db.query('SELECT * FROM propietarios WHERE cedula = ?', [cedula]);
-      } else {
-        [rows] = await db.query('SELECT * FROM propietarios WHERE email = ?', [email]);
-      }
+      const [rows] = await db.query('SELECT * FROM propietarios WHERE cedula = ?', [cedula]);
 
       if (!rows.length) return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
 

@@ -25,7 +25,6 @@ router.post('/', authenticateToken, requireAdmin,
     body('nombre').trim().notEmpty().withMessage('Nombre es requerido'),
     body('email').isEmail().withMessage('Email inválido'),
     body('telefono').optional().trim().matches(/^[\+]?[0-9\-\(\)\s]{7,20}$/).withMessage('Teléfono inválido'),
-    // password optional pero si viene debe cumplir
     body('password').optional().isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres'),
     handleValidationErrors
   ],
@@ -52,7 +51,6 @@ router.put('/:id', authenticateToken, requireAdmin,
     body('nombre').optional().isLength({ min: 2 }).withMessage('Nombre muy corto'),
     body('email').optional().isEmail().withMessage('Email inválido'),
     body('telefono').optional().trim().matches(/^[\+]?[0-9\-\(\)\s]{7,20}$/).withMessage('Teléfono inválido'),
-    // password optional para update (si viene y no es vacío, se usará)
     body('password').optional().isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres'),
     handleValidationErrors
   ],
@@ -65,10 +63,12 @@ router.delete('/:id', authenticateToken, requireAdmin,
   PropietariosController.remove
 );
 
-// Login propietario (público — para app móvil)
+// Login propietario (público — solo cédula)
 router.post('/login',
   [
-    body('email').isEmail().withMessage('Email inválido'),
+    body('cedula')
+      .notEmpty().withMessage('La cédula es requerida')
+      .matches(/^\d{9}$/).withMessage('La cédula debe tener exactamente 9 dígitos'),
     body('password').notEmpty().withMessage('Contraseña requerida'),
     handleValidationErrors
   ],
