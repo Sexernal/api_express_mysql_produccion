@@ -2,12 +2,6 @@
 const db = require('../db');
 const { validationResult } = require('express-validator');
 
-/**
- * CitasController - incluye control de solapamientos por veterinario,
- * buffer opcional, endpoint /citas/slots, correcciones de columnas DB
- * y log de auditoría de cambios de estado.
- */
-
 function parseDate(val) {
   if (!val) return null;
   const d = new Date(val);
@@ -27,19 +21,26 @@ async function _hasOverlap(veterinario_id, fecha_inicio, duracion_min, excludeId
       AND (c.fecha_inicio < DATE_ADD(DATE_ADD(?, INTERVAL ? MINUTE), INTERVAL ? MINUTE))
   `;
   const params = [veterinario_id, fecha_inicio, bufferMin, fecha_inicio, duracion_min, bufferMin];
-  if (excludeId) {
-    sql += ` AND c.id != ?`;
-    params.push(excludeId);
-  }
+  if (excludeId) { sql += ` AND c.id != ?`; params.push(excludeId); }
   sql += ` LIMIT 1`;
   const [rows] = await db.query(sql, params);
   return rows.length > 0;
 }
 
-/* ──────────────────────────────────────────────
-   HELPER: Log de auditoría
-   No lanza error si falla — jamás bloquea la operación principal.
-────────────────────────────────────────────── */
+async function _hasOverlapMobile(fecha_inicio, duracion_min, excludeId = null) {
+  let sql = `SELECT 1 FROM citas c
+    WHERE c.veterinario_id IS NULL
+      AND c.origen = 'mobile'
+      AND c.estado != 'cancelada'
+      AND (? < DATE_ADD(c.fecha_inicio, INTERVAL c.duracion_min MINUTE))
+      AND (c.fecha_inicio < DATE_ADD(?, INTERVAL ? MINUTE))`;
+  const params = [fecha_inicio, fecha_inicio, duracion_min];
+  if (excludeId) { sql += ` AND c.id != ?`; params.push(excludeId); }
+  sql += ` LIMIT 1`;
+  const [rows] = await db.query(sql, params);
+  return rows.length > 0;
+}
+
 async function _logCita(db, { cita_id, usuario_id, usuario_role, accion, estado_anterior = null, estado_nuevo = null, notas = null }) {
   try {
     let usuario_nombre = null;
@@ -62,19 +63,10 @@ async function _logCita(db, { cita_id, usuario_id, usuario_role, accion, estado_
   }
 }
 
-/* ──────────────────────────────────────────────
-   Helpers de slots
-────────────────────────────────────────────── */
-
 function getDurationForTipo(t) {
   const map = {
-    "consulta general": 30,
-    "vacunacion": 20,
-    "urgencia": 60,
-    "cirugia": 120,
-    "peluqueria": 45,
-    "control": 20,
-    "desparacitacion": 15
+    "consulta general": 30, "vacunacion": 20, "urgencia": 60,
+    "cirugia": 120, "peluqueria": 45, "control": 20, "desparacitacion": 15
   };
   return map[(t || "").toLowerCase()] || 30;
 }
@@ -82,13 +74,13 @@ function getDurationForTipo(t) {
 function getWindowsForTipo(t) {
   const low = (t || "").toLowerCase();
   switch (low) {
-    case "vacunacion":     return [{ from: "08:00", to: "12:30" }, { from: "14:00", to: "17:00" }];
-    case "cirugia":        return [{ from: "08:00", to: "12:00" }];
-    case "peluqueria":     return [{ from: "09:00", to: "16:00" }];
-    case "urgencia":       return [{ from: "07:00", to: "17:00" }];
-    case "control":        return [{ from: "07:00", to: "17:00" }];
-    case "desparacitacion":return [{ from: "07:00", to: "17:00" }];
-    default:               return [{ from: "07:00", to: "17:00" }];
+    case "vacunacion":      return [{ from: "08:00", to: "12:30" }, { from: "14:00", to: "17:00" }];
+    case "cirugia":         return [{ from: "08:00", to: "12:00" }];
+    case "peluqueria":      return [{ from: "09:00", to: "16:00" }];
+    case "urgencia":        return [{ from: "07:00", to: "17:00" }];
+    case "control":         return [{ from: "07:00", to: "17:00" }];
+    case "desparacitacion": return [{ from: "07:00", to: "17:00" }];
+    default:                return [{ from: "07:00", to: "17:00" }];
   }
 }
 
@@ -97,24 +89,21 @@ function parseHHMM(hhmm) {
   return hh * 60 + mm;
 }
 function minutesToHHMM(m) {
-  const hh = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  return `${String(Math.floor(m / 60)).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
 }
 
 function generateSlotsNode(dateStr, tipoStr, vetList, existingCitas) {
   if (!dateStr || !tipoStr) return { slotsByVet: {}, durationMin: 0 };
   const durationMin = getDurationForTipo(tipoStr);
   const windows = getWindowsForTipo(tipoStr);
-  const CLINIC_OPEN = "07:00";
-  const CLINIC_CLOSE = "17:00";
+  const CLINIC_OPEN = "07:00", CLINIC_CLOSE = "17:00";
 
   const citasByVet = {};
   for (const c of existingCitas) {
     const vid = c.veterinario_id ? String(c.veterinario_id) : "null";
     if (!citasByVet[vid]) citasByVet[vid] = [];
     const start = new Date(c.fecha_inicio || c.fecha || "");
-    const end = new Date(start.getTime() + Number(c.duracion_min || c.duracion || 0) * 60000);
+    const end   = new Date(start.getTime() + Number(c.duracion_min || c.duracion || 0) * 60000);
     citasByVet[vid].push({ start, end });
   }
 
@@ -127,77 +116,56 @@ function generateSlotsNode(dateStr, tipoStr, vetList, existingCitas) {
       const windowToMin   = Math.min(parseHHMM(CLINIC_CLOSE), parseHHMM(w.to));
       const lastStartMin  = windowToMin - durationMin;
       if (lastStartMin < windowFromMin) continue;
-
       let t = windowFromMin;
-      const step = 15;
       while (t <= lastStartMin) {
-        const timeStr      = minutesToHHMM(t);
+        const timeStr       = minutesToHHMM(t);
         const startIsoLocal = `${dateStr}T${timeStr}`;
-        const start        = new Date(`${dateStr}T${timeStr}:00`);
-        if (isNaN(start.getTime())) { t += step; continue; }
-        const end = new Date(start.getTime() + durationMin * 60000);
-
-        const vetCitas = citasByVet[vid] || [];
-        let conflict = false;
+        const start         = new Date(`${dateStr}T${timeStr}:00`);
+        if (isNaN(start.getTime())) { t += 15; continue; }
+        const end       = new Date(start.getTime() + durationMin * 60000);
+        const vetCitas  = citasByVet[vid] || [];
+        let conflict    = false;
         for (const c of vetCitas) {
-          if (overlaps(start.getTime(), end.getTime(), c.start.getTime(), c.end.getTime())) {
-            conflict = true; break;
-          }
+          if (overlaps(start.getTime(), end.getTime(), c.start.getTime(), c.end.getTime())) { conflict = true; break; }
         }
-
-        if (!conflict) {
-          slotsByVet[vid].push({ timeStr, startIsoLocal });
-          t += durationMin;
-        } else {
-          t += step;
-        }
+        if (!conflict) { slotsByVet[vid].push({ timeStr, startIsoLocal }); t += durationMin; }
+        else { t += 15; }
       }
     }
     slotsByVet[vid].sort((a, b) => a.startIsoLocal.localeCompare(b.startIsoLocal));
   }
-
   return { slotsByVet, durationMin };
 }
 
-/* ──────────────────────────────────────────────
-   Controller principal
-────────────────────────────────────────────── */
-
 const CitasController = {
 
-  // GET /citas
   async list(req, res) {
     try {
       const page   = Math.max(1, parseInt(req.query.page  || 1));
       const limit  = Math.min(200, parseInt(req.query.limit || 50));
       const offset = (page - 1) * limit;
-
       const filters = [], params = [];
       if (req.query.mascota_id)     { filters.push('c.mascota_id = ?');     params.push(req.query.mascota_id); }
       if (req.query.propietario_id) { filters.push('c.propietario_id = ?'); params.push(req.query.propietario_id); }
       if (req.query.veterinario_id) { filters.push('c.veterinario_id = ?'); params.push(req.query.veterinario_id); }
       if (req.query.desde)          { filters.push('c.fecha_inicio >= ?');  params.push(req.query.desde); }
       if (req.query.hasta)          { filters.push('c.fecha_inicio <= ?');  params.push(req.query.hasta); }
-
       const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
-
       const [countRows] = await db.query(`SELECT COUNT(*) AS total FROM citas c ${where}`, params);
       const total = countRows[0]?.total || 0;
-
       const [rows] = await db.query(`
         SELECT c.*,
                m.nombre AS mascota_nombre,
                p.nombre AS propietario_nombre,
                u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         ${where}
         ORDER BY c.fecha_inicio DESC
         LIMIT ? OFFSET ?
       `, [...params, limit, offset]);
-
       res.set('X-Total-Count', String(total));
       res.json({ success: true, data: rows, meta: { total, page, limit } });
     } catch (err) {
@@ -206,15 +174,14 @@ const CitasController = {
     }
   },
 
-  // GET /citas/:id
   async getById(req, res) {
     try {
       const [rows] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       res.json({ success: true, data: rows[0] });
@@ -224,7 +191,6 @@ const CitasController = {
     }
   },
 
-  // GET /citas/:id/log
   async getLog(req, res) {
     try {
       if (req.user.role === 'propietario') {
@@ -233,10 +199,8 @@ const CitasController = {
       const id = req.params.id;
       const [citaRows] = await db.query('SELECT id FROM citas WHERE id = ?', [id]);
       if (!citaRows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
-
       const [logs] = await db.query(
-        'SELECT * FROM citas_log WHERE cita_id = ? ORDER BY created_at ASC',
-        [id]
+        'SELECT * FROM citas_log WHERE cita_id = ? ORDER BY created_at ASC', [id]
       );
       res.json({ success: true, data: logs });
     } catch (err) {
@@ -245,7 +209,6 @@ const CitasController = {
     }
   },
 
-  // POST /citas
   async create(req, res) {
     try {
       const errors = validationResult(req);
@@ -282,7 +245,7 @@ const CitasController = {
       const fecha = parseDate(fecha_inicio);
       if (!fecha) return res.status(400).json({ success: false, message: 'fecha_inicio inválida' });
 
-      const durMin = typeof duracion_min !== 'undefined' && duracion_min !== null ? Number(duracion_min) : 30;
+      const durMin    = typeof duracion_min !== 'undefined' && duracion_min !== null ? Number(duracion_min) : 30;
       if (isNaN(durMin) || durMin <= 0) return res.status(400).json({ success: false, message: 'duracion_min inválida' });
 
       const bufferMin = Number(req.body.buffer_min ?? req.body.bufferMin ?? 10);
@@ -294,27 +257,38 @@ const CitasController = {
         }
       }
 
+      // Propietarios siempre crean desde la app móvil
+      const origen = req.user?.role === 'propietario' ? 'mobile' : 'web';
+
+      // Bloquear horario si ya hay una cita mobile sin vet asignado en ese slot
+      if (origen === 'mobile' && !vetIdToUse) {
+        const hasOverlapMobile = await _hasOverlapMobile(formatDateToSQL(fecha), durMin, null);
+        if (hasOverlapMobile) {
+          return res.status(409).json({ success: false, message: 'Ese horario ya fue reservado por otro cliente. Por favor elige otro.' });
+        }
+      }
+
       const createdBy = req.user?.userId || null;
       const [result] = await db.query(
-        `INSERT INTO citas (mascota_id, propietario_id, veterinario_id, tipo_consulta, motivo, fecha_inicio, duracion_min, estado, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [mascota_id, propietario_id, vetIdToUse, tipo_consulta || 'consulta general', motivo || null, formatDateToSQL(fecha), durMin, 'pendiente', createdBy]
+        `INSERT INTO citas (mascota_id, propietario_id, veterinario_id, tipo_consulta, motivo, fecha_inicio, duracion_min, estado, origen, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [mascota_id, propietario_id, vetIdToUse, tipo_consulta || 'consulta general', motivo || null, formatDateToSQL(fecha), durMin, 'pendiente', origen, createdBy]
       );
 
       await _logCita(db, {
         cita_id: result.insertId,
         usuario_id: req.user?.userId,
         usuario_role: req.user?.role,
-        accion: 'creada',
+        accion: origen === 'mobile' ? 'creada desde app móvil' : 'creada',
         estado_nuevo: 'pendiente',
       });
 
       const [rows] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [result.insertId]);
 
       res.status(201).json({ success: true, data: rows[0] });
@@ -324,7 +298,6 @@ const CitasController = {
     }
   },
 
-  // PUT /citas/:id
   async update(req, res) {
     try {
       const id = req.params.id;
@@ -360,10 +333,10 @@ const CitasController = {
         }
       }
 
-      const fecha = fecha_inicio ? parseDate(fecha_inicio) : (existing.fecha_inicio ? new Date(existing.fecha_inicio) : null);
+      const fecha  = fecha_inicio ? parseDate(fecha_inicio) : (existing.fecha_inicio ? new Date(existing.fecha_inicio) : null);
       if (!fecha) return res.status(400).json({ success: false, message: 'fecha_inicio inválida' });
 
-      const durMin = (typeof duracion_min !== 'undefined' && duracion_min !== null) ? Number(duracion_min) : existing.duracion_min;
+      const durMin    = (typeof duracion_min !== 'undefined' && duracion_min !== null) ? Number(duracion_min) : existing.duracion_min;
       if (isNaN(durMin) || durMin <= 0) return res.status(400).json({ success: false, message: 'duracion_min inválida' });
 
       const bufferMin = Number(req.body.buffer_min ?? req.body.bufferMin ?? 10);
@@ -401,9 +374,9 @@ const CitasController = {
       const [rows] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [id]);
 
       res.json({ success: true, data: rows[0] });
@@ -413,7 +386,6 @@ const CitasController = {
     }
   },
 
-  // GET /citas/slots
   async getSlots(req, res) {
     try {
       const date = req.query.date;
@@ -421,16 +393,38 @@ const CitasController = {
 
       const tipo  = req.query.tipo || 'consulta general';
       const vetId = req.query.veterinario_id ? String(req.query.veterinario_id) : null;
+      const modo  = req.query.modo || 'web';
 
       const [vRows] = await db.query("SELECT id, nombre, email FROM usuarios WHERE role = 'admin'");
       const vets    = vetId ? vRows.filter(v => String(v.id) === String(vetId)) : vRows;
 
       const [citasRows] = await db.query(
-        "SELECT * FROM citas WHERE DATE(fecha_inicio) = ? AND estado != 'cancelada'",
-        [date]
+        "SELECT * FROM citas WHERE DATE(fecha_inicio) = ? AND estado != 'cancelada'", [date]
       );
 
       const { slotsByVet, durationMin } = generateSlotsNode(date, tipo, vets, citasRows);
+
+      // Si viene desde la app móvil, quitar los slots que ya tienen cita mobile sin vet
+      if (modo === 'mobile') {
+        const [mobileCitas] = await db.query(
+          "SELECT fecha_inicio, duracion_min FROM citas WHERE DATE(fecha_inicio) = ? AND veterinario_id IS NULL AND origen = 'mobile' AND estado != 'cancelada'",
+          [date]
+        );
+        if (mobileCitas.length > 0) {
+          const mobileBlocks = mobileCitas.map(c => ({
+            start: new Date(c.fecha_inicio).getTime(),
+            end:   new Date(c.fecha_inicio).getTime() + Number(c.duracion_min) * 60000,
+          }));
+          for (const vid of Object.keys(slotsByVet)) {
+            slotsByVet[vid] = slotsByVet[vid].filter(s => {
+              const sStart = new Date(`${date}T${s.timeStr}:00`).getTime();
+              const sEnd   = sStart + durationMin * 60000;
+              return !mobileBlocks.some(b => overlaps(sStart, sEnd, b.start, b.end));
+            });
+          }
+        }
+      }
+
       return res.json({ success: true, data: { slotsByVet, durationMin } });
     } catch (err) {
       console.error("Error getSlots:", err);
@@ -438,41 +432,26 @@ const CitasController = {
     }
   },
 
-  // POST /citas/:id/confirm
   async confirm(req, res) {
     try {
       const id = req.params.id;
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-
       if (req.user.role !== 'admin') {
-        if (req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id))) {
-          // recepcionista o propietario dueño: permitido
-        } else {
+        if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para confirmar esta cita' });
         }
       }
-
       await db.query('UPDATE citas SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['confirmada', id]);
-
-      await _logCita(db, {
-        cita_id: Number(id),
-        usuario_id: req.user?.userId,
-        usuario_role: req.user?.role,
-        accion: 'confirmada',
-        estado_anterior: cita.estado,
-        estado_nuevo: 'confirmada',
-      });
-
+      await _logCita(db, { cita_id: Number(id), usuario_id: req.user?.userId, usuario_role: req.user?.role, accion: 'confirmada', estado_anterior: cita.estado, estado_nuevo: 'confirmada' });
       const [r2] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [id]);
-
       res.json({ success: true, data: r2[0] });
     } catch (err) {
       console.error('Error confirm cita:', err);
@@ -480,41 +459,26 @@ const CitasController = {
     }
   },
 
-  // POST /citas/:id/complete
   async complete(req, res) {
     try {
       const id = req.params.id;
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-
       if (req.user.role !== 'admin') {
-        if (req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id))) {
-          // recepcionista o propietario dueño: permitido
-        } else {
+        if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para marcar completada esta cita' });
         }
       }
-
       await db.query('UPDATE citas SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['completada', id]);
-
-      await _logCita(db, {
-        cita_id: Number(id),
-        usuario_id: req.user?.userId,
-        usuario_role: req.user?.role,
-        accion: 'completada',
-        estado_anterior: cita.estado,
-        estado_nuevo: 'completada',
-      });
-
+      await _logCita(db, { cita_id: Number(id), usuario_id: req.user?.userId, usuario_role: req.user?.role, accion: 'completada', estado_anterior: cita.estado, estado_nuevo: 'completada' });
       const [r2] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [id]);
-
       res.json({ success: true, data: r2[0] });
     } catch (err) {
       console.error('Error complete cita:', err);
@@ -522,46 +486,31 @@ const CitasController = {
     }
   },
 
-  // PATCH /citas/:id/status
   async changeStatus(req, res) {
     try {
       const id = req.params.id;
       const { estado } = req.body;
-
       const allowed = ['pendiente','confirmada','completada','cancelada'];
       if (!estado || !allowed.includes(estado)) {
         return res.status(400).json({ success: false, message: 'Estado inválido. Valores permitidos: ' + allowed.join(', ') });
       }
-
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-
       if (req.user.role !== 'admin') {
         if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para cambiar estado de esta cita' });
         }
       }
-
       await db.query('UPDATE citas SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [estado, id]);
-
-      await _logCita(db, {
-        cita_id: Number(id),
-        usuario_id: req.user?.userId,
-        usuario_role: req.user?.role,
-        accion: 'estado_cambiado',
-        estado_anterior: cita.estado,
-        estado_nuevo: estado,
-      });
-
+      await _logCita(db, { cita_id: Number(id), usuario_id: req.user?.userId, usuario_role: req.user?.role, accion: 'estado_cambiado', estado_anterior: cita.estado, estado_nuevo: estado });
       const [r2] = await db.query(`
         SELECT c.*, m.nombre AS mascota_nombre, p.nombre AS propietario_nombre, u.nombre AS veterinario_nombre
         FROM citas c
-        LEFT JOIN mascotas    m ON c.mascota_id     = m.id
+        LEFT JOIN mascotas     m ON c.mascota_id     = m.id
         LEFT JOIN propietarios p ON c.propietario_id = p.id
-        LEFT JOIN usuarios    u ON c.veterinario_id  = u.id
+        LEFT JOIN usuarios     u ON c.veterinario_id = u.id
         WHERE c.id = ?`, [id]);
-
       res.json({ success: true, data: r2[0] });
     } catch (err) {
       console.error('Error changeStatus cita:', err);
@@ -569,32 +518,18 @@ const CitasController = {
     }
   },
 
-  // DELETE /citas/:id
   async remove(req, res) {
     try {
       const id = req.params.id;
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-
       if (req.user.role !== 'admin') {
-        if (req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id))) {
-          // recepcionista o propietario dueño: permitido
-        } else {
+        if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para eliminar esta cita' });
         }
       }
-
-      // Loguear antes de eliminar (la FK ON DELETE CASCADE borra el log también,
-      // pero si quieres conservar el log de citas eliminadas cambia la FK a SET NULL en cita_id)
-      await _logCita(db, {
-        cita_id: Number(id),
-        usuario_id: req.user?.userId,
-        usuario_role: req.user?.role,
-        accion: 'eliminada',
-        estado_anterior: cita.estado,
-      });
-
+      await _logCita(db, { cita_id: Number(id), usuario_id: req.user?.userId, usuario_role: req.user?.role, accion: 'eliminada', estado_anterior: cita.estado });
       await db.query('DELETE FROM citas WHERE id = ?', [id]);
       res.json({ success: true, message: 'Cita eliminada' });
     } catch (err) {
