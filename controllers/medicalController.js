@@ -1,13 +1,16 @@
 // controllers/medicalController.js
-const db   = require('../db');
-const fs   = require('fs');
-const path = require('path');
+const db         = require('../db');
+const cloudinary = require('../config/cloudinary');
 
-const uploadsRoot = path.join(__dirname, '..', 'uploads');
-const medicalDir  = path.join(uploadsRoot, 'medical');
-
-const fileUrlFromFilename = (filename) =>
-  filename ? `/uploads/medical/${filename}` : null;
+async function deleteFromCloudinary(publicId, mime) {
+  if (!publicId) return;
+  try {
+    const resourceType = (mime || '').startsWith('image/') ? 'image' : 'raw';
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.error('Error al eliminar de Cloudinary:', err.message);
+  }
+}
 
 function parseDateFromInput(val) {
   if (!val) return new Date();
@@ -53,7 +56,7 @@ function mapRow(r) {
   const fechaDt = dateFromDbValue(r.fecha);
   return {
     ...r,
-    filepath:      r.filename ? fileUrlFromFilename(r.filename) : null,
+    filepath:      r.filepath || null,
     fecha_display: fechaDt ? formatDisplayDate(fechaDt) : '-',
   };
 }
@@ -66,13 +69,10 @@ const MedicalController = {
       let rows;
       if (petId) {
         [rows] = await db.query(
-          `${SELECT_FICHA} WHERE f.mascota_id = ? ORDER BY f.fecha DESC`,
-          [petId]
+          `${SELECT_FICHA} WHERE f.mascota_id = ? ORDER BY f.fecha DESC`, [petId]
         );
       } else {
-        [rows] = await db.query(
-          `${SELECT_FICHA} ORDER BY f.fecha DESC LIMIT 200`
-        );
+        [rows] = await db.query(`${SELECT_FICHA} ORDER BY f.fecha DESC LIMIT 200`);
       }
       res.json({ success: true, data: rows.map(mapRow) });
     } catch (err) {
@@ -83,9 +83,7 @@ const MedicalController = {
 
   async getById(req, res) {
     try {
-      const [rows] = await db.query(
-        `${SELECT_FICHA} WHERE f.id = ?`, [req.params.id]
-      );
+      const [rows] = await db.query(`${SELECT_FICHA} WHERE f.id = ?`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Ficha no encontrada' });
       res.json({ success: true, data: mapRow(rows[0]) });
     } catch (err) {
@@ -102,7 +100,7 @@ const MedicalController = {
       const [mRows] = await db.query('SELECT id FROM mascotas WHERE id = ?', [mascotaId]);
       if (!mRows.length) return res.status(400).json({ success: false, message: 'Mascota no existe' });
 
-      const tipo              = req.body.tipo || 'consulta';
+      const tipo               = req.body.tipo || 'consulta';
       const tipo_personalizado = (tipo === 'otro' && req.body.tipo_personalizado)
         ? req.body.tipo_personalizado.trim() : null;
       const fechaSql    = formatDateToSQLLocal(req.body.fecha ? parseDateFromInput(req.body.fecha) : new Date());
@@ -111,9 +109,12 @@ const MedicalController = {
       const nota        = req.body.nota || req.body.observaciones || null;
       const uploaded_by = req.user?.userId || req.user?.id || null;
 
-      let filename = null, mime = null, size_bytes = null;
+      // req.file.filename = Cloudinary public_id
+      // req.file.path     = Cloudinary secure_url
+      let filename = null, filepath = null, mime = null, size_bytes = null;
       if (req.file) {
         filename   = req.file.filename;
+        filepath   = req.file.path;
         mime       = req.file.mimetype;
         size_bytes = req.file.size;
       }
@@ -123,7 +124,7 @@ const MedicalController = {
          (mascota_id, tipo, tipo_personalizado, fecha, peso, temperatura, nota, filename, filepath, mime, size_bytes, uploaded_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [mascotaId, tipo, tipo_personalizado, fechaSql, peso, temperatura, nota,
-         filename, fileUrlFromFilename(filename), mime, size_bytes, uploaded_by]
+         filename, filepath, mime, size_bytes, uploaded_by]
       );
 
       const [rows] = await db.query(`${SELECT_FICHA} WHERE f.id = ?`, [result.insertId]);
@@ -141,7 +142,7 @@ const MedicalController = {
       if (!existingRows.length) return res.status(404).json({ success: false, message: 'Ficha no encontrada' });
       const ex = existingRows[0];
 
-      const tipo              = req.body.tipo || ex.tipo;
+      const tipo               = req.body.tipo || ex.tipo;
       const tipo_personalizado = (tipo === 'otro' && req.body.tipo_personalizado !== undefined)
         ? (req.body.tipo_personalizado?.trim() || null)
         : (tipo === 'otro' ? ex.tipo_personalizado : null);
@@ -150,13 +151,11 @@ const MedicalController = {
       const temperatura = (req.body.temperatura !== undefined && req.body.temperatura !== '') ? req.body.temperatura : ex.temperatura;
       const nota        = req.body.nota !== undefined ? req.body.nota : ex.nota;
 
-      let filename = ex.filename, mime = ex.mime, size_bytes = ex.size_bytes;
+      let filename = ex.filename, filepath = ex.filepath, mime = ex.mime, size_bytes = ex.size_bytes;
       if (req.file) {
-        if (ex.filename) {
-          const oldPath = path.join(medicalDir, ex.filename);
-          try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch (_) {}
-        }
+        await deleteFromCloudinary(ex.filename, ex.mime);
         filename   = req.file.filename;
+        filepath   = req.file.path;
         mime       = req.file.mimetype;
         size_bytes = req.file.size;
       }
@@ -167,7 +166,7 @@ const MedicalController = {
              nota = ?, filename = ?, filepath = ?, mime = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [tipo, tipo_personalizado, fechaSql, peso, temperatura, nota,
-         filename, fileUrlFromFilename(filename), mime, size_bytes, id]
+         filename, filepath, mime, size_bytes, id]
       );
 
       const [rows] = await db.query(`${SELECT_FICHA} WHERE f.id = ?`, [id]);
@@ -182,11 +181,10 @@ const MedicalController = {
     try {
       const [rows] = await db.query('SELECT * FROM fichas_medicas WHERE id = ?', [req.params.id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Ficha no encontrada' });
-      if (rows[0].filename) {
-        const fp = path.join(medicalDir, rows[0].filename);
-        try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (_) {}
-      }
+
+      await deleteFromCloudinary(rows[0].filename, rows[0].mime);
       await db.query('DELETE FROM fichas_medicas WHERE id = ?', [req.params.id]);
+
       res.json({ success: true, message: 'Ficha eliminada' });
     } catch (err) {
       console.error('Error delete ficha:', err);
