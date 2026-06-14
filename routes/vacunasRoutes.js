@@ -10,6 +10,7 @@ router.get('/vacunas/proximas', authenticateToken, requireAdmin, VacunasControll
 router.get('/vacunas',          authenticateToken,               VacunasController.listByPet);
 router.get('/vacunas/:id',      authenticateToken,               VacunasController.getById);
 router.post('/vacunas',         authenticateToken, requireAdmin, VacunasController.create);
+router.post('/vacunas/:id/aplicar',  authenticateToken, requireAdmin, VacunasController.aplicar);
 router.put('/vacunas/:id',      authenticateToken, requireAdmin, VacunasController.update);
 router.delete('/vacunas/:id',   authenticateToken, requireAdmin, VacunasController.remove);
 
