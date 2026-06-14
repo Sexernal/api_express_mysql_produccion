@@ -22,6 +22,7 @@ const medicalRoutes = require('./routes/medicalRoutes'); // contiene rutas /medi
 const citasRoutes = require('./routes/citasRoutes'); // router de citas
 const serviciosRoutes = require('./routes/serviciosRoutes');
 const comandaRoutes   = require('./routes/comandaRoutes');
+const vacunasRoutes   = require('./routes/vacunasRoutes');
 
 // Crear app y constantes (DEBEN ir antes de usar app.use)
 const app = express();
@@ -103,6 +104,7 @@ app.use(`${API_PREFIX}/citas`, citasRoutes);
 
 app.use(`${API_PREFIX}/servicios`, serviciosRoutes);
 app.use(`${API_PREFIX}`,           comandaRoutes);
+app.use(`${API_PREFIX}`,           vacunasRoutes);
 
 // docs (breve)
 app.get('/docs', (req, res) => {
