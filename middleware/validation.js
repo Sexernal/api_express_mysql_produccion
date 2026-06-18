@@ -71,10 +71,8 @@ const validateProfileUpdate = [
     .isLength({ max: 150 }).withMessage('Especialidad máximo 150 caracteres'),
   body('currentPassword').optional()
     .notEmpty().withMessage('La contraseña actual no puede estar vacía'),
-  body('newPassword').optional()
-    .isLength({ min: 8, max: 128 }).withMessage('La nueva contraseña debe tener entre 8 y 128 caracteres')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('La nueva contraseña debe tener al menos una mayúscula, una minúscula y un número'),
+    body('newPassword').optional()
+    .isLength({ min: 6, max: 128 }).withMessage('La nueva contraseña debe tener entre 6 y 128 caracteres'),
 ];
 
 const validateUserId = [

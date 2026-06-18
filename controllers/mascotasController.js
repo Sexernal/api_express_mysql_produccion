@@ -88,13 +88,13 @@ const MascotasController = {
 
   async create(req, res) {
     try {
-      const { nombre, especie, raza, edad, historial_medico, owner_id } = req.body;
+      const { nombre, especie, raza, edad, fecha_nacimiento, historial_medico, owner_id } = req.body;
       // validar que propietario exista
       const [owner] = await db.query('SELECT id FROM propietarios WHERE id = ?', [owner_id]);
       if (!owner.length) return res.status(400).json({ success: false, message: 'Propietario no existe' });
       const [result] = await db.query(
-        'INSERT INTO mascotas (nombre, especie, raza, edad, historial_medico, owner_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [nombre, especie || null, raza || null, edad || null, historial_medico || null, owner_id]
+        'INSERT INTO mascotas (nombre, especie, raza, edad, fecha_nacimiento, historial_medico, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [nombre, especie || null, raza || null, edad ?? null, fecha_nacimiento || null, historial_medico || null, owner_id]
       );
       const [rows] = await db.query('SELECT * FROM mascotas WHERE id = ?', [result.insertId]);
       res.status(201).json({ success: true, data: rows[0] });
@@ -107,14 +107,22 @@ const MascotasController = {
   async update(req, res) {
     try {
       const id = req.params.id;
-      const { nombre, especie, raza, edad, historial_medico, owner_id } = req.body;
+      const { nombre, especie, raza, edad, fecha_nacimiento, historial_medico, owner_id } = req.body;
       if (owner_id) {
         const [owner] = await db.query('SELECT id FROM propietarios WHERE id = ?', [owner_id]);
         if (!owner.length) return res.status(400).json({ success: false, message: 'Propietario no existe' });
       }
       await db.query(
-        'UPDATE mascotas SET nombre = COALESCE(?, nombre), especie = COALESCE(?, especie), raza = COALESCE(?, raza), edad = COALESCE(?, edad), historial_medico = COALESCE(?, historial_medico), owner_id = COALESCE(?, owner_id) WHERE id = ?',
-        [nombre, especie, raza, edad, historial_medico, owner_id, id]
+        `UPDATE mascotas SET
+           nombre = COALESCE(?, nombre),
+           especie = COALESCE(?, especie),
+           raza = COALESCE(?, raza),
+           edad = COALESCE(?, edad),
+           fecha_nacimiento = COALESCE(?, fecha_nacimiento),
+           historial_medico = COALESCE(?, historial_medico),
+           owner_id = COALESCE(?, owner_id)
+         WHERE id = ?`,
+        [nombre ?? null, especie ?? null, raza ?? null, edad ?? null, fecha_nacimiento ?? null, historial_medico ?? null, owner_id ?? null, id]
       );
       const [rows] = await db.query('SELECT * FROM mascotas WHERE id = ?', [id]);
       res.json({ success: true, data: rows[0] });
