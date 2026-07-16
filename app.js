@@ -23,6 +23,8 @@ const citasRoutes = require('./routes/citasRoutes'); // router de citas
 const serviciosRoutes = require('./routes/serviciosRoutes');
 const comandaRoutes   = require('./routes/comandaRoutes');
 const vacunasRoutes   = require('./routes/vacunasRoutes');
+const notificacionesRoutes = require('./routes/notificacionesRoutes');
+const reportesRoutes       = require('./routes/reportesRoutes');
 
 // Crear app y constantes (DEBEN ir antes de usar app.use)
 const app = express();
@@ -105,6 +107,8 @@ app.use(`${API_PREFIX}/citas`, citasRoutes);
 app.use(`${API_PREFIX}/servicios`, serviciosRoutes);
 app.use(`${API_PREFIX}`,           comandaRoutes);
 app.use(`${API_PREFIX}`,           vacunasRoutes);
+app.use(`${API_PREFIX}`,           notificacionesRoutes);
+app.use(`${API_PREFIX}`,           reportesRoutes);
 
 // docs (breve)
 app.get('/docs', (req, res) => {
@@ -153,6 +157,13 @@ const initializeApp = async () => {
       console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
       console.log(`📋 API base: http://localhost:${PORT}${API_PREFIX}`);
     });
+
+    // Tarea programada de recordatorios por email (Canal A)
+    try {
+      require('./jobs/recordatoriosJob').start();
+    } catch (err) {
+      console.warn('⚠️ No se pudo iniciar el job de recordatorios:', err.message || err);
+    }
 
     process.on('SIGTERM', () => server.close(() => process.exit(0)));
     process.on('SIGINT', () => server.close(() => process.exit(0)));
