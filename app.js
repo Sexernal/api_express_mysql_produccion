@@ -25,6 +25,7 @@ const comandaRoutes   = require('./routes/comandaRoutes');
 const vacunasRoutes   = require('./routes/vacunasRoutes');
 const notificacionesRoutes = require('./routes/notificacionesRoutes');
 const reportesRoutes       = require('./routes/reportesRoutes');
+const consolidadoRoutes    = require('./routes/consolidadoRoutes');
 
 // Crear app y constantes (DEBEN ir antes de usar app.use)
 const app = express();
@@ -109,6 +110,7 @@ app.use(`${API_PREFIX}`,           comandaRoutes);
 app.use(`${API_PREFIX}`,           vacunasRoutes);
 app.use(`${API_PREFIX}`,           notificacionesRoutes);
 app.use(`${API_PREFIX}`,           reportesRoutes);
+app.use(`${API_PREFIX}`,           consolidadoRoutes);
 
 // docs (breve)
 app.get('/docs', (req, res) => {

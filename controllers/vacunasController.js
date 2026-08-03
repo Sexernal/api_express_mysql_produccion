@@ -52,7 +52,44 @@ function mapRow(r) {
     fecha_proxima_display:    displayYMD(fp) || '—',
     estado,
     dias_restantes,
+    // Grupo efectivo de la serie: la primera dosis es su propia raíz
+    grupo_id: r.grupo_id || r.id,
   };
+}
+
+// Numera las dosis dentro de cada serie (1ª, 2ª, 3ª...) en orden cronológico.
+// Muta los objetos ya mapeados; no altera el orden del arreglo devuelto.
+function numerarDosis(rows) {
+  const grupos = new Map();
+  for (const r of rows) {
+    if (!grupos.has(r.grupo_id)) grupos.set(r.grupo_id, []);
+    grupos.get(r.grupo_id).push(r);
+  }
+  for (const lista of grupos.values()) {
+    lista
+      .slice()
+      .sort((a, b) => {
+        const fa = a.fecha_aplicacion || '';
+        const fb = b.fecha_aplicacion || '';
+        if (fa !== fb) return fa < fb ? -1 : 1;
+        return a.id - b.id;
+      })
+      .forEach((r, i, arr) => {
+        r.dosis_numero = i + 1;
+        r.total_dosis  = arr.length;
+      });
+  }
+  return rows;
+}
+
+// Grupo al que debe unirse una nueva dosis de esa vacuna en esa mascota.
+// NULL si es la primera vez que se registra esa vacuna para la mascota.
+async function resolverGrupo(mascotaId, nombreVacuna) {
+  const [prev] = await db.query(
+    'SELECT id, grupo_id FROM vacunas WHERE mascota_id = ? AND nombre_vacuna = ? ORDER BY id ASC LIMIT 1',
+    [mascotaId, nombreVacuna]
+  );
+  return prev.length ? (prev[0].grupo_id || prev[0].id) : null;
 }
 
 async function resolveVet(req) {
@@ -76,7 +113,7 @@ const VacunasController = {
       } else {
         [rows] = await db.query(`${SELECT_BASE} ORDER BY v.fecha_aplicacion DESC LIMIT 200`);
       }
-      res.json({ success: true, data: rows.map(mapRow) });
+      res.json({ success: true, data: numerarDosis(rows.map(mapRow)) });
     } catch (err) {
       console.error('Error listByPet vacunas:', err);
       res.status(500).json({ success: false, message: 'Error al listar vacunas', error: err.message });
@@ -133,10 +170,12 @@ const VacunasController = {
       const producto = req.body.producto ? String(req.body.producto).trim() : null;
       const lote     = req.body.lote     ? String(req.body.lote).trim()     : null;
       const notas    = req.body.notas    ? String(req.body.notas)           : null;
+      // Si la mascota ya tiene esa vacuna, la nueva dosis se une a la misma serie
+      const grupoId = await resolverGrupo(mascotaId, nombre_vacuna);
       const [result] = await db.query(
-        `INSERT INTO vacunas (mascota_id, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, veterinario_id, notas)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [mascotaId, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, vetId, notas]
+        `INSERT INTO vacunas (mascota_id, grupo_id, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, veterinario_id, notas)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [mascotaId, grupoId, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, vetId, notas]
       );
       const [rows] = await db.query(`${SELECT_BASE} WHERE v.id = ?`, [result.insertId]);
       res.status(201).json({ success: true, data: mapRow(rows[0]) });
@@ -222,10 +261,12 @@ const VacunasController = {
 
       await db.query('UPDATE vacunas SET ciclo_completado=TRUE, updated_at=CURRENT_TIMESTAMP WHERE id=?', [id]);
 
+      // La nueva dosis continúa la serie de la dosis anterior
+      const grupoId = cur.grupo_id || cur.id;
       const [result] = await db.query(
-        `INSERT INTO vacunas (mascota_id, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, veterinario_id, notas)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [cur.mascota_id, cur.nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, vetId, notas]
+        `INSERT INTO vacunas (mascota_id, grupo_id, nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, veterinario_id, notas)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cur.mascota_id, grupoId, cur.nombre_vacuna, producto, lote, fecha_aplicacion, fecha_proxima, vetId, notas]
       );
       const [[updatedOld]] = await db.query(`${SELECT_BASE} WHERE v.id = ?`, [id]);
       const [[newRow]]     = await db.query(`${SELECT_BASE} WHERE v.id = ?`, [result.insertId]);
