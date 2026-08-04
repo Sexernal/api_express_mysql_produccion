@@ -23,6 +23,7 @@ const citasRoutes = require('./routes/citasRoutes'); // router de citas
 const serviciosRoutes = require('./routes/serviciosRoutes');
 const comandaRoutes   = require('./routes/comandaRoutes');
 const vacunasRoutes   = require('./routes/vacunasRoutes');
+const tratamientosRoutes = require('./routes/tratamientosRoutes');
 const notificacionesRoutes = require('./routes/notificacionesRoutes');
 const reportesRoutes       = require('./routes/reportesRoutes');
 const consolidadoRoutes    = require('./routes/consolidadoRoutes');
@@ -111,6 +112,7 @@ app.use(`${API_PREFIX}`,           vacunasRoutes);
 app.use(`${API_PREFIX}`,           notificacionesRoutes);
 app.use(`${API_PREFIX}`,           reportesRoutes);
 app.use(`${API_PREFIX}`,           consolidadoRoutes);
+app.use(`${API_PREFIX}`,           tratamientosRoutes);
 
 // docs (breve)
 app.get('/docs', (req, res) => {
