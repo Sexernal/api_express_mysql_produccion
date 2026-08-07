@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const PropietariosController = require('../controllers/propietariosController');
+const PasswordResetController = require('../controllers/passwordResetController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, param } = require('express-validator');
 const { handleValidationErrors } = require('../middleware/validation');
@@ -74,5 +75,10 @@ router.post('/login',
   ],
   PropietariosController.login
 );
+
+// ── Restablecer contraseña (público — el cliente está fuera de la app) ───────
+// Código de 6 dígitos al correo; se confirma junto con la cédula que lo pidió.
+router.post('/password-reset/solicitar', PasswordResetController.solicitarPropietario);
+router.post('/password-reset/confirmar', PasswordResetController.confirmarPropietario);
 
 module.exports = router;

@@ -110,4 +110,95 @@ function recordatorioVacunaHTML(vacuna) {
   return baseTemplate('💉 Recordatorio de vacunación', contenido);
 }
 
-module.exports = { isConfigured, sendMail, recordatorioCitaHTML, recordatorioVacunaHTML };
+// ─── Restablecer contraseña — enlace (doctores, desde la web) ─────────────────
+
+function resetPasswordEnlaceHTML({ nombre, url, minutos }) {
+  const contenido = `
+    <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+      Hola <strong>${nombre || ''}</strong>, recibimos una solicitud para restablecer
+      la contraseña de tu cuenta del sistema veterinario.
+    </p>
+    <p style="margin:0 0 22px;color:#374151;font-size:14px;line-height:1.6;">
+      Pulsa el botón para crear una contraseña nueva. El enlace vence en
+      <strong>${minutos} minutos</strong> y solo funciona una vez.
+    </p>
+    <table style="margin:0 auto 22px;"><tr><td style="border-radius:8px;background:#2563eb;">
+      <a href="${url}" style="display:inline-block;padding:13px 30px;color:#ffffff;
+         text-decoration:none;font-size:15px;font-weight:bold;border-radius:8px;">
+        Cambiar mi contraseña
+      </a>
+    </td></tr></table>
+    <p style="margin:0 0 8px;color:#6b7280;font-size:12px;line-height:1.6;">
+      Si el botón no funciona, copia y pega esta dirección en tu navegador:
+    </p>
+    <p style="margin:0 0 20px;word-break:break-all;font-size:12px;">
+      <a href="${url}" style="color:#2563eb;">${url}</a>
+    </p>
+    <div style="padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;">
+      <p style="margin:0;color:#78350f;font-size:13px;line-height:1.6;">
+        <strong>¿No fuiste tú?</strong> Ignora este mensaje: tu contraseña actual
+        sigue funcionando y nadie puede cambiarla sin este enlace.
+      </p>
+    </div>`;
+  return baseTemplate('🔑 Restablecer tu contraseña', contenido);
+}
+
+// ─── Restablecer contraseña — código (propietarios, desde la app) ─────────────
+
+function resetPasswordCodigoHTML({ nombre, codigo, minutos }) {
+  const digitos = String(codigo).split('').map(d => `
+    <td style="padding:0 4px;">
+      <div style="width:38px;height:48px;line-height:48px;text-align:center;
+                  background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;
+                  font-size:24px;font-weight:bold;color:#0b1220;
+                  font-family:'Courier New',monospace;">${d}</div>
+    </td>`).join('');
+
+  const contenido = `
+    <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+      Hola <strong>${nombre || ''}</strong>, recibimos una solicitud para restablecer
+      la contraseña de tu cuenta en la app de Veterinaria Cañas.
+    </p>
+    <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+      Escribe este código en la aplicación:
+    </p>
+    <table style="margin:0 auto 18px;border-collapse:collapse;"><tr>${digitos}</tr></table>
+    <p style="margin:0 0 20px;text-align:center;color:#6b7280;font-size:13px;">
+      Vence en <strong>${minutos} minutos</strong> y solo funciona una vez.
+    </p>
+    <div style="padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;">
+      <p style="margin:0;color:#78350f;font-size:13px;line-height:1.6;">
+        <strong>¿No fuiste tú?</strong> Ignora este mensaje y no compartas el código
+        con nadie. Tu contraseña actual sigue funcionando.
+      </p>
+    </div>`;
+  return baseTemplate('🔑 Código para restablecer tu contraseña', contenido);
+}
+
+// ─── Aviso de contraseña cambiada ─────────────────────────────────────────────
+// Se manda DESPUÉS del cambio. Si la persona no lo hizo, es su señal de alarma.
+
+function passwordCambiadaHTML({ nombre }) {
+  const contenido = `
+    <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+      Hola <strong>${nombre || ''}</strong>, tu contraseña se cambió correctamente.
+      Ya puedes iniciar sesión con la nueva.
+    </p>
+    <div style="padding:14px 16px;background:#fee2e2;border-left:3px solid #ef4444;border-radius:6px;">
+      <p style="margin:0;color:#7f1d1d;font-size:13px;line-height:1.6;">
+        <strong>¿No fuiste tú?</strong> Contacta a la clínica de inmediato: alguien
+        más pudo haber accedido a tu correo.
+      </p>
+    </div>`;
+  return baseTemplate('✅ Tu contraseña fue cambiada', contenido);
+}
+
+module.exports = {
+  isConfigured,
+  sendMail,
+  recordatorioCitaHTML,
+  recordatorioVacunaHTML,
+  resetPasswordEnlaceHTML,
+  resetPasswordCodigoHTML,
+  passwordCambiadaHTML,
+};
