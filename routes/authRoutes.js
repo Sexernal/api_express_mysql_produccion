@@ -5,6 +5,7 @@ const AuthController = require('../controllers/authController');
 const PasswordResetController = require('../controllers/passwordResetController');
 const { authenticateToken } = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
+const requirePermiso           = require('../middleware/requirePermiso');
 const {
   validateRegister,
   validateLoginCedula,
@@ -30,7 +31,7 @@ router.post('/refresh', authenticateToken, AuthController.refreshToken);
 router.post('/logout',  authenticateToken, AuthController.logout);
 
 // ── Legacy (solo admins logueados) ────────────────────────────────────────────
-router.post('/register',       authenticateToken, requireAdmin, validateRegister, AuthController.register);
-router.post('/register-admin', authenticateToken, requireAdmin, validateRegister, AuthController.registerAdmin);
+router.post('/register',       authenticateToken, requirePermiso('usuarios.gestionar'), validateRegister, AuthController.register);
+router.post('/register-admin', authenticateToken, requirePermiso('usuarios.gestionar'), validateRegister, AuthController.registerAdmin);
 
 module.exports = router;

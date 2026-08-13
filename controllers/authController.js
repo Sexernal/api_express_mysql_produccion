@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt    = require('jsonwebtoken');
 const User   = require('../models/User');
 const db     = require('../db');
+const { puede, etiquetaRol, permisosDe } = require('../services/permisos');
 const { validationResult } = require('express-validator');
 
 function makeSafeUser(user) {
@@ -16,6 +17,11 @@ function makeSafeUser(user) {
     especialidad: user.especialidad || null,
     direccion:    user.direccion    || null,
     created_at:   user.created_at   || user.fecha_creacion || null,
+    // El frontend usa esto para decidir qué botones dibuja, en vez de
+    // deducirlo del nombre del rol. Si mañana cambia la matriz de permisos,
+    // la interfaz se ajusta sola sin tocar cada pantalla.
+    role_label:   etiquetaRol(user.role),
+    permisos:     permisosDe(user.role),
   };
 }
 
@@ -71,7 +77,7 @@ class AuthController {
         return res.status(400).json({ success: false, message: 'Errores de validación', errors: errors.array() });
       }
 
-      if (!req.user || req.user.role !== 'admin') {
+      if (!req.user || !puede(req.user.role, 'usuarios.gestionar')) {
         return res.status(403).json({ success: false, message: 'Acceso denegado: solo administradores' });
       }
 

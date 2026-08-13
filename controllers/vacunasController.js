@@ -1,5 +1,6 @@
 // controllers/vacunasController.js
 const db = require('../db');
+const { esPersonalClinico } = require('../services/permisos');
 
 function toYMD(val) {
   if (!val) return null;
@@ -96,7 +97,7 @@ async function resolveVet(req) {
   if (req.body.veterinario_id) {
     const [u] = await db.query('SELECT id, role FROM usuarios WHERE id = ?', [req.body.veterinario_id]);
     if (!u.length) return { error: 'Veterinario no encontrado' };
-    if ((u[0].role || '').toLowerCase() !== 'admin') return { error: 'El usuario seleccionado no es un veterinario' };
+    if (!esPersonalClinico(u[0].role)) return { error: 'El usuario seleccionado no es un veterinario' };
     return { vetId: Number(req.body.veterinario_id) };
   }
   return { vetId: req.user?.userId || null };
@@ -217,7 +218,7 @@ const VacunasController = {
         else {
           const [u] = await db.query('SELECT id, role FROM usuarios WHERE id = ?', [req.body.veterinario_id]);
           if (!u.length) return res.status(400).json({ success: false, message: 'Veterinario no encontrado' });
-          if ((u[0].role || '').toLowerCase() !== 'admin')
+          if (!esPersonalClinico(u[0].role))
             return res.status(400).json({ success: false, message: 'El usuario seleccionado no es un veterinario' });
           veterinario_id = Number(req.body.veterinario_id);
         }

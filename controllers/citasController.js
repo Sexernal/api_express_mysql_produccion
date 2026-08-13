@@ -1,5 +1,6 @@
 // controllers/citasController.js
 const db = require('../db');
+const { esPersonalClinico } = require('../services/permisos');
 const { validationResult } = require('express-validator');
 
 function parseDate(val) {
@@ -236,7 +237,7 @@ const CitasController = {
       if (veterinario_id) {
         const [urows] = await db.query('SELECT id, role FROM usuarios WHERE id = ?', [veterinario_id]);
         if (!urows.length) return res.status(400).json({ success: false, message: 'Veterinario no encontrado' });
-        if ((urows[0].role || '').toLowerCase() !== 'admin') {
+        if (!esPersonalClinico(urows[0].role)) {
           return res.status(400).json({ success: false, message: 'El usuario seleccionado no es un veterinario (role admin)' });
         }
         vetIdToUse = Number(veterinario_id);
@@ -326,7 +327,7 @@ const CitasController = {
         } else {
           const [urows] = await db.query('SELECT id, role FROM usuarios WHERE id = ?', [veterinario_id]);
           if (!urows.length) return res.status(400).json({ success: false, message: 'Veterinario no encontrado' });
-          if ((urows[0].role || '').toLowerCase() !== 'admin') {
+          if (!esPersonalClinico(urows[0].role)) {
             return res.status(400).json({ success: false, message: 'El usuario seleccionado no es un veterinario (role admin)' });
           }
           vetToUse = Number(veterinario_id);
@@ -438,7 +439,9 @@ const CitasController = {
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-      if (req.user.role !== 'admin') {
+      // esPersonalClinico cubre veterinario y superadmin; antes decía
+      // role !== 'admin' y el superadmin caía al else y recibía 403.
+      if (!esPersonalClinico(req.user.role)) {
         if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para confirmar esta cita' });
         }
@@ -465,7 +468,9 @@ const CitasController = {
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-      if (req.user.role !== 'admin') {
+      // esPersonalClinico cubre veterinario y superadmin; antes decía
+      // role !== 'admin' y el superadmin caía al else y recibía 403.
+      if (!esPersonalClinico(req.user.role)) {
         if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para marcar completada esta cita' });
         }
@@ -497,7 +502,9 @@ const CitasController = {
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-      if (req.user.role !== 'admin') {
+      // esPersonalClinico cubre veterinario y superadmin; antes decía
+      // role !== 'admin' y el superadmin caía al else y recibía 403.
+      if (!esPersonalClinico(req.user.role)) {
         if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para cambiar estado de esta cita' });
         }
@@ -524,7 +531,9 @@ const CitasController = {
       const [rows] = await db.query('SELECT * FROM citas WHERE id = ?', [id]);
       if (!rows.length) return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       const cita = rows[0];
-      if (req.user.role !== 'admin') {
+      // esPersonalClinico cubre veterinario y superadmin; antes decía
+      // role !== 'admin' y el superadmin caía al else y recibía 403.
+      if (!esPersonalClinico(req.user.role)) {
         if (!(req.user.role === 'user' || (req.user.role === 'propietario' && Number(req.user.userId) === Number(cita.propietario_id)))) {
           return res.status(403).json({ success: false, message: 'No autorizado para eliminar esta cita' });
         }
