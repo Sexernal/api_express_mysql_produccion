@@ -193,6 +193,49 @@ function passwordCambiadaHTML({ nombre }) {
   return baseTemplate('✅ Tu contraseña fue cambiada', contenido);
 }
 
+// ─── Aviso de cambio de rol ───────────────────────────────────────────────────
+// Se manda a la persona afectada y a los demás administradores. Si alguien
+// abusara del permiso de ascender, el resto se entera el mismo día.
+
+function rolCambiadoHTML({ nombre, rolAnterior, rolNuevo, actorNombre, esParaElAfectado }) {
+  const esAscenso = rolNuevo === 'Administrador';
+
+  const cuerpo = esParaElAfectado
+    ? `<p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+         Hola <strong>${nombre || ''}</strong>, tu rol en el sistema de Veterinaria Cañas
+         fue actualizado por <strong>${actorNombre}</strong>.
+       </p>`
+    : `<p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.6;">
+         <strong>${actorNombre}</strong> cambió el rol de <strong>${nombre || ''}</strong>
+         en el sistema. Recibes este aviso porque también eres administrador.
+       </p>`;
+
+  const contenido = `
+    ${cuerpo}
+    <table style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:8px;padding:8px;">
+      ${filaDato('Rol anterior', rolAnterior)}
+      ${filaDato('Rol nuevo',    rolNuevo)}
+    </table>
+    ${esAscenso ? `
+      <div style="margin-top:18px;padding:14px 16px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;">
+        <p style="margin:0;color:#1e3a8a;font-size:13px;line-height:1.6;">
+          El rol de <strong>Administrador</strong> da acceso completo: reportes,
+          catálogo de precios y gestión del personal.
+        </p>
+      </div>` : ''}
+    <div style="margin-top:18px;padding:14px 16px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;">
+      <p style="margin:0;color:#78350f;font-size:13px;line-height:1.6;">
+        <strong>¿No esperabas este cambio?</strong> Contacta de inmediato a la
+        administración de la clínica.
+      </p>
+    </div>`;
+
+  return baseTemplate(
+    esAscenso ? '⬆️ Cambio de rol en el sistema' : '🔄 Cambio de rol en el sistema',
+    contenido
+  );
+}
+
 module.exports = {
   isConfigured,
   sendMail,
@@ -201,4 +244,5 @@ module.exports = {
   resetPasswordEnlaceHTML,
   resetPasswordCodigoHTML,
   passwordCambiadaHTML,
+  rolCambiadoHTML,
 };

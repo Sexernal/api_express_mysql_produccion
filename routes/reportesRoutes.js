@@ -1,12 +1,17 @@
 // routes/reportesRoutes.js
+// Panel de estadísticas: exclusivo del super admin.
 const express = require('express');
 const router  = express.Router();
 const { authenticateToken } = require('../middleware/auth');
-const requireAdmin          = require('../middleware/requireAdmin');
-const requirePermiso           = require('../middleware/requirePermiso');
+const requirePermiso        = require('../middleware/requirePermiso');
 const ReportesController    = require('../controllers/reportesController');
 
-// SOLO veterinarios (admin) — un recepcionista o propietario recibe 403
-router.get('/reportes/resumen', authenticateToken, requirePermiso('reportes.ver'), ReportesController.resumen);
+const soloAdmin = [authenticateToken, requirePermiso('reportes.ver')];
+
+// Los tres aceptan ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD.
+// Sin parámetros, el mes actual.
+router.get('/reportes/resumen', soloAdmin, ReportesController.resumen);
+router.get('/reportes/pdf',     soloAdmin, ReportesController.pdf);
+router.get('/reportes/csv',     soloAdmin, ReportesController.csv);
 
 module.exports = router;
