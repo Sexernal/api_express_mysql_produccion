@@ -1,5 +1,17 @@
 // controllers/comandaController.js
 const db = require('../db');
+const {
+  construirFacturacion, comandaDeFicha, resumirTotales,
+} = require('../services/facturacionService');
+const { generarFacturacionPDF, generarComandaPDF } = require('../services/facturacionPdf');
+
+// Fecha y hora local del servidor para el "generado el" de los documentos.
+// No se usa toISOString porque en UTC-6 daria el dia siguiente de noche.
+function ahoraLocal() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 const ComandaController = {
 
@@ -61,81 +73,53 @@ const ComandaController = {
   // GET /facturacion
   async listFacturacion(req, res) {
     try {
-      const { q, cobrado, fecha_desde, fecha_hasta, page = 1, limit = 100 } = req.query;
-      const offset = (Number(page) - 1) * Number(limit);
-
-      const conds  = ['ci.cnt > 0'];
-      const params = [];
-
-      if (q) {
-        conds.push('(p.nombre LIKE ? OR m.nombre LIKE ?)');
-        params.push(`%${q}%`, `%${q}%`);
-      }
-      if (cobrado === '1') conds.push('COALESCE(fc.cobrado, 0) = 1');
-      if (cobrado === '0') conds.push('COALESCE(fc.cobrado, 0) = 0');
-      if (fecha_desde) { conds.push('DATE(f.fecha) >= ?'); params.push(fecha_desde); }
-      if (fecha_hasta) { conds.push('DATE(f.fecha) <= ?'); params.push(fecha_hasta); }
-
-      const where = `WHERE ${conds.join(' AND ')}`;
-
-      const base = `
-        FROM fichas_medicas f
-        JOIN mascotas m ON f.mascota_id = m.id
-        LEFT JOIN propietarios p ON p.id = m.owner_id
-        LEFT JOIN fichas_cobro fc ON f.id = fc.ficha_id
-        LEFT JOIN usuarios u ON f.uploaded_by = u.id
-        JOIN (
-          SELECT ficha_id,
-                 COUNT(*) AS cnt,
-                 SUM(cantidad * precio_unitario) AS total
-          FROM comanda_items GROUP BY ficha_id
-        ) ci ON ci.ficha_id = f.id
-        ${where}
-      `;
-
-      const [[{ total: totalRecs }]] = await db.query(`SELECT COUNT(*) AS total ${base}`, params);
-
-      const [rows] = await db.query(
-        `SELECT
-           f.id, f.tipo, f.tipo_personalizado, f.fecha, f.nota,
-           m.nombre AS mascota_nombre, m.especie,
-           p.id    AS propietario_id,
-           p.nombre   AS propietario_nombre,
-           p.telefono AS propietario_telefono,
-           u.nombre   AS veterinario_nombre,
-           COALESCE(fc.cobrado, 0) AS cobrado,
-           fc.cobrado_at, fc.notas AS notas_cobro,
-           ci.total AS total_comanda,
-           ci.cnt   AS items_count
-         ${base}
-         ORDER BY f.fecha DESC
-         LIMIT ? OFFSET ?`,
-        [...params, Number(limit), offset]
-      );
-
-      const fichaIds = rows.map(r => r.id);
-      let itemsByFicha = {};
-      if (fichaIds.length) {
-        const [items] = await db.query(
-          `SELECT * FROM comanda_items WHERE ficha_id IN (${fichaIds.map(() => '?').join(',')}) ORDER BY ficha_id, id`,
-          fichaIds
-        );
-        for (const item of items) {
-          if (!itemsByFicha[item.ficha_id]) itemsByFicha[item.ficha_id] = [];
-          itemsByFicha[item.ficha_id].push(item);
-        }
-      }
-
-      res.json({
-        success: true,
-        data: rows.map(r => ({ ...r, items: itemsByFicha[r.id] || [] })),
-        meta: { total: totalRecs, page: Number(page), limit: Number(limit) },
-      });
+      const { datos, meta } = await construirFacturacion(req.query);
+      res.json({ success: true, data: datos, meta });
     } catch (err) {
       console.error('Error listFacturacion:', err);
       res.status(500).json({ success: false, message: 'Error al obtener facturación', error: err.message });
     }
   },
+
+  // GET /facturacion/pdf?q=&cobrado=&fecha_desde=&fecha_hasta=  → descarga
+  // Trae TODAS las comandas del filtro, no solo la pagina en pantalla.
+  async pdfFacturacion(req, res) {
+    try {
+      const { datos, meta } = await construirFacturacion(req.query, { todos: true });
+      const buffer = await generarFacturacionPDF(
+        { datos, meta, resumen: resumirTotales(datos), filtros: req.query },
+        { generadoPor: req.user?.nombre || req.user?.email || '', generadoEl: ahoraLocal() }
+      );
+
+      const sufijo = [req.query.fecha_desde, req.query.fecha_hasta].filter(Boolean).join('_a_');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition',
+        `attachment; filename="facturacion${sufijo ? '-' + sufijo : ''}.pdf"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.send(buffer);
+    } catch (err) {
+      console.error('Error pdfFacturacion:', err);
+      res.status(500).json({ success: false, message: 'Error al generar el PDF de facturación', error: err.message });
+    }
+  },
+
+  // GET /fichas/:fichaId/comanda/pdf  → descarga del ticket individual
+  async pdfComanda(req, res) {
+    try {
+      const comanda = await comandaDeFicha(req.params.fichaId);
+      if (!comanda) return res.status(404).json({ success: false, message: 'Comanda no encontrada' });
+
+      const buffer = await generarComandaPDF(comanda, { generadoEl: ahoraLocal() });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="comanda-${comanda.id}.pdf"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.send(buffer);
+    } catch (err) {
+      console.error('Error pdfComanda:', err);
+      res.status(500).json({ success: false, message: 'Error al generar el PDF de la comanda', error: err.message });
+    }
+  },
+
 
   // PUT /facturacion/:fichaId/cobrar
   async marcarCobrado(req, res) {

@@ -2,12 +2,16 @@
 const express = require('express');
 const router  = express.Router();
 const { authenticateToken } = require('../middleware/auth');
-const requireAdmin           = require('../middleware/requireAdmin');
+const requirePermiso         = require('../middleware/requirePermiso');
 const ConsolidadoController  = require('../controllers/consolidadoController');
 
-// SOLO veterinarios (admin) — es el informe profesional para el Colegio de Veterinarios.
-// Si más adelante quieres que las recepcionistas también puedan verlo, cambia
-// requireAdmin por authorizeRoles(['admin', 'user']) (importándolo desde middleware/auth).
-router.get('/consolidado', authenticateToken, requireAdmin, ConsolidadoController.porFecha);
+// Informe profesional para el Colegio de Veterinarios: lo ven el super admin
+// y los veterinarios, no recepción. El permiso 'consolidado.ver' define quién,
+// en services/permisos.js.
+const puedeVerlo = [authenticateToken, requirePermiso('consolidado.ver')];
+
+router.get('/consolidado',     puedeVerlo, ConsolidadoController.porFecha);
+// Mismo informe, pero como archivo descargable
+router.get('/consolidado/pdf', puedeVerlo, ConsolidadoController.pdf);
 
 module.exports = router;
