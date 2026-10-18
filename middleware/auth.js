@@ -49,7 +49,11 @@ const authenticateToken = async (req, res, next) => {
       req.user = {
         userId: decoded.userId,
         email: decoded.email,
-        role: user.role || decoded.role || 'user'
+        role: user.role || decoded.role || 'user',
+        // El nombre se lee de la base, no del token: si alguien lo corrige en
+        // la ficha de personal, los PDF ("Responsable: ...") y las notificaciones
+        // lo reflejan sin tener que volver a iniciar sesión.
+        nombre: user.nombre || null
       };
       return next();
     }
@@ -109,7 +113,12 @@ const optionalAuth = async (req, res, next) => {
     try { user = await User.findById(decoded.userId); } catch (e) { user = null; }
 
     if (user) {
-      req.user = { userId: decoded.userId, email: decoded.email, role: user.role || decoded.role || 'user' };
+      req.user = {
+        userId: decoded.userId,
+        email: decoded.email,
+        role: user.role || decoded.role || 'user',
+        nombre: user.nombre || null
+      };
     }
 
     next();

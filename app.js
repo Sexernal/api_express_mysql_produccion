@@ -67,7 +67,11 @@ app.use(cors({
     : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization']
+  allowedHeaders: ['Content-Type','Authorization'],
+  // Sin esto el navegador NO deja leer Content-Disposition desde el frontend,
+  // y las descargas (PDF del consolidado, de facturación y de reportes) se
+  // guardarían con el nombre de respaldo en vez del que manda el servidor.
+  exposedHeaders: ['Content-Disposition']
 }));
 
 // logging en dev
